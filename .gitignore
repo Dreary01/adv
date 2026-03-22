@@ -1,0 +1,34 @@
+# Dependencies
+services/web/node_modules/
+services/web/dist/
+
+# Environment
+.env
+.env.local
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+adv-postgres-data/
+adv-redis-data/
+adv-nats-data/
+
+# Go
+services/api/tmp/
+services/api/vendor/
+
+# Test coverage
+coverage/
+
+# Claude local files
+.claude/

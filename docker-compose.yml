@@ -1,0 +1,137 @@
+version: "3.9"
+
+networks:
+  adv-network:
+    name: adv-network
+    driver: bridge
+
+volumes:
+  adv-postgres-data:
+  adv-redis-data:
+  adv-nats-data:
+
+services:
+  # ── Database ──────────────────────────────────────────────
+  adv-postgres:
+    container_name: adv-postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_line_prefix=%t [%p] %u@%d "
+    environment:
+      POSTGRES_DB: advanta
+      POSTGRES_USER: advanta
+      POSTGRES_PASSWORD: advanta_secret_2024
+    volumes:
+      - adv-postgres-data:/var/lib/postgresql/data
+      - ./deploy/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    networks:
+      - adv-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U advanta"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Cache ─────────────────────────────────────────────────
+  adv-redis:
+    container_name: adv-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - adv-redis-data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - adv-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Message Bus ───────────────────────────────────────────
+  adv-nats:
+    container_name: adv-nats
+    image: nats:2-alpine
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir=/data"]
+    volumes:
+      - adv-nats-data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - adv-network
+    healthcheck:
+      test: ["CMD", "nats-server", "--help"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Backend API ───────────────────────────────────────────
+  adv-api:
+    container_name: adv-api
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://advanta:advanta_secret_2024@adv-postgres:5432/advanta?sslmode=disable
+      REDIS_URL: redis://adv-redis:6379/0
+      NATS_URL: nats://adv-nats:4222
+      JWT_SECRET: adv_jwt_secret_change_in_production
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    networks:
+      - adv-network
+    depends_on:
+      adv-postgres:
+        condition: service_healthy
+      adv-redis:
+        condition: service_healthy
+
+  # ── Frontend ──────────────────────────────────────────────
+  adv-web:
+    container_name: adv-web
+    build:
+      context: ./services/web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:8080
+    ports:
+      - "3002:80"
+    networks:
+      - adv-network
+    depends_on:
+      - adv-api
+
+  # ── Triggers Engine ──────────────────────────────────────
+  adv-triggers:
+    container_name: adv-triggers
+    build:
+      context: ./services/triggers
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://advanta:advanta_secret_2024@adv-postgres:5432/advanta?sslmode=disable
+      NATS_URL: nats://adv-nats:4222
+      API_URL: http://adv-api:8080
+    ports:
+      - "8085:8085"
+    networks:
+      - adv-network
+    depends_on:
+      adv-postgres:
+        condition: service_healthy
