@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import {
@@ -790,9 +790,9 @@ function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDepen
   }
 
   const MAX_GANTT_TASKS = 50000
+  const { tasks, links, idToUuid, uuidToId } = useMemo(() => {
   const depTypeToSvar: Record<string, string> = { fs: 'e2s', ss: 's2s', ff: 'e2e', sf: 's2e' }
 
-  // Limit tasks for performance
   const limitedTasks = data.tasks.slice(0, MAX_GANTT_TASKS)
 
   const uuidToId: Record<string, number> = {}
@@ -831,22 +831,6 @@ function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDepen
     }
   })
 
-  // Compute critical path IDs
-  let criticalTaskIds = new Set<number>()
-  if (showCriticalPath) {
-    const schedulerTasks = tasks.filter((t: any) => t.type !== 'summary').map((t: any) => ({
-      id: t.id, start: t.start, end: t.end || new Date(t.start.getTime() + (t.duration || 1) * 86400000),
-      duration: t.duration || 1, type: t.type,
-    }))
-    const tempLinks = (data.dependencies || [])
-      .map((d: any, i: number) => ({
-        id: i + 1, source: uuidToId[d.fromId] || 0, target: uuidToId[d.toId] || 0,
-        type: depTypeToSvar[d.type] || 'e2s',
-      }))
-      .filter((l: any) => l.source > 0 && l.target > 0)
-    criticalTaskIds = findCriticalPath(schedulerTasks, tempLinks)
-  }
-
   const links = (data.dependencies || [])
     .map((d: any, i: number) => ({
       id: i + 1,
@@ -855,6 +839,19 @@ function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDepen
       type: (depTypeToSvar[d.type] || 'e2s') as any,
     }))
     .filter((l: any) => l.source > 0 && l.target > 0)
+
+  return { tasks, links, idToUuid, uuidToId }
+  }, [data])
+
+  // Critical path — computed separately, depends on showCriticalPath
+  const criticalTaskIds = useMemo(() => {
+    if (!showCriticalPath) return new Set<number>()
+    const schedulerTasks = tasks.filter((t: any) => t.type !== 'summary').map((t: any) => ({
+      id: t.id, start: t.start, end: t.end || new Date(t.start.getTime() + (t.duration || 1) * 86400000),
+      duration: t.duration || 1, type: t.type,
+    }))
+    return findCriticalPath(schedulerTasks, links)
+  }, [showCriticalPath, tasks, links])
 
   return (
     <div>
@@ -875,20 +872,22 @@ function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDepen
           <SVARGantt tasks={tasks} links={links} scales={GANTT_SCALES}
             schedule={{ auto: true }}
             highlightTime={highlightWeekends}
-            taskTemplate={showCriticalPath ? (({ data: taskData }: any) => {
-              const isCritical = criticalTaskIds.has(taskData.id)
+            taskTemplate={({ data: taskData }: any) => {
+              const isCritical = showCriticalPath && criticalTaskIds.has(taskData.id)
               return (
                 <div style={{
-                  background: isCritical ? '#ef4444' : undefined,
-                  borderRadius: 3, height: '100%', width: '100%',
+                  background: isCritical ? '#ef4444' : 'var(--wx-gantt-task-color)',
+                  borderRadius: 'var(--wx-gantt-task-border-radius, 4px)',
+                  height: '100%', width: '100%',
                   display: 'flex', alignItems: 'center', paddingLeft: 8,
-                  color: isCritical ? '#fff' : undefined,
-                  fontSize: 12, fontWeight: isCritical ? 600 : 400, overflow: 'hidden',
+                  color: isCritical ? '#fff' : 'var(--wx-gantt-task-label-color, #fff)',
+                  overflow: 'hidden', whiteSpace: 'nowrap',
+                  fontSize: 'var(--wx-gantt-task-font-size, 14px)',
                 }}>
                   {taskData.text}
                 </div>
               )
-            }) : undefined}
+            }}
             init={(svarApi: any) => {
               const fmt = (d: Date) => {
                 const y = d.getFullYear()
@@ -1004,7 +1003,7 @@ function GanttTab({ obj }: { obj: any }) {
   return (
     <div>
       <GanttWithRealData
-        key={`${ganttKey}-${showCriticalPath}`}
+        key={ganttKey}
         data={ganttData}
         onTaskDateChange={handleTaskDateChange}
         onDependencyCreate={handleDependencyCreate}
