@@ -771,19 +771,23 @@ import { Gantt as SVARGantt, Willow as SVARWillow } from '@svar-ui/react-gantt'
 import { cascadeSchedule, findCriticalPath } from '../lib/gantt-scheduler'
 import { toGanttData } from '../lib/gantt-types'
 
-const GANTT_SCALES = [
-  { unit: 'month' as any, step: 1, format: '%F %Y' },
-  { unit: 'day' as any, step: 1, format: '%j' },
-]
 
 const highlightWeekends = (date: Date) => {
   const day = date.getDay()
   return day === 0 || day === 6 ? 'wx-weekend' : ''
 }
 
-function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDependencyDelete, showCriticalPath, onToggleCriticalPath }: {
+const SCALE_OPTIONS: Record<string, { label: string; scales: any[]; cellWidth: number }> = {
+  hour: { label: 'Часы', scales: [{ unit: 'day', step: 1, format: '%d %F' }, { unit: 'hour', step: 1, format: '%H' }], cellWidth: 40 },
+  day: { label: 'Дни', scales: [{ unit: 'month', step: 1, format: '%F %Y' }, { unit: 'day', step: 1, format: '%j' }], cellWidth: 40 },
+  week: { label: 'Недели', scales: [{ unit: 'month', step: 1, format: '%F %Y' }, { unit: 'week', step: 1, format: '%W' }], cellWidth: 120 },
+  month: { label: 'Месяцы', scales: [{ unit: 'year', step: 1, format: '%Y' }, { unit: 'month', step: 1, format: '%F' }], cellWidth: 100 },
+  year: { label: 'Годы', scales: [{ unit: 'year', step: 1, format: '%Y' }], cellWidth: 120 },
+}
+
+function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDependencyDelete, showCriticalPath, onToggleCriticalPath, scaleMode, onScaleModeChange }: {
   data: any; onTaskDateChange?: (id: string, start: string, end: string) => void; onDependencyCreate?: (from: string, to: string, type: string) => void; onDependencyDelete?: (depId: string) => void
-  showCriticalPath?: boolean; onToggleCriticalPath?: () => void
+  showCriticalPath?: boolean; onToggleCriticalPath?: () => void; scaleMode?: string; onScaleModeChange?: (mode: string) => void
 }) {
   if (!data || !data.tasks || data.tasks.length === 0) {
     return <div className="empty-state py-12"><p className="empty-state-text">Нет задач с датами</p></div>
@@ -857,6 +861,11 @@ function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDepen
     <div>
       {/* Toolbar */}
       <div className="flex items-center gap-4 mb-3">
+        <select value={scaleMode || 'day'} onChange={e => onScaleModeChange?.(e.target.value)} className="select-sm w-auto">
+          {Object.entries(SCALE_OPTIONS).map(([k, v]) => (
+            <option key={k} value={k}>{v.label}</option>
+          ))}
+        </select>
         <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
           <input type="checkbox" checked={showCriticalPath || false}
             onChange={() => onToggleCriticalPath?.()}
@@ -869,7 +878,9 @@ function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDepen
       </div>
       <SVARWillow>
         <div style={{ width: '100%', height: Math.min(tasks.length * 38 + 120, 700) }}>
-          <SVARGantt tasks={tasks} links={links} scales={GANTT_SCALES}
+          <SVARGantt tasks={tasks} links={links}
+            scales={SCALE_OPTIONS[scaleMode || 'day']?.scales || SCALE_OPTIONS.day.scales}
+            cellWidth={SCALE_OPTIONS[scaleMode || 'day']?.cellWidth || 40}
             schedule={{ auto: true }}
             highlightTime={highlightWeekends}
             taskTemplate={({ data: taskData }: any) => {
@@ -967,7 +978,8 @@ function GanttTab({ obj }: { obj: any }) {
   const [ganttData, setGanttData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [ganttKey, setGanttKey] = useState(0)
-  const [showCriticalPath, setShowCriticalPath] = useState(false)
+  const [showCriticalPath, setShowCriticalPath] = useState(() => localStorage.getItem('adv_gantt_critical') === 'true')
+  const [scaleMode, setScaleMode] = useState(() => localStorage.getItem('adv_gantt_scale') || 'day')
 
   const loadGanttData = useCallback(() => {
     setLoading(true)
@@ -1009,7 +1021,9 @@ function GanttTab({ obj }: { obj: any }) {
         onDependencyCreate={handleDependencyCreate}
         onDependencyDelete={handleDependencyDelete}
         showCriticalPath={showCriticalPath}
-        onToggleCriticalPath={() => setShowCriticalPath(p => !p)}
+        onToggleCriticalPath={() => setShowCriticalPath(p => { const next = !p; localStorage.setItem('adv_gantt_critical', String(next)); return next })}
+        scaleMode={scaleMode}
+        onScaleModeChange={(m: string) => { setScaleMode(m); localStorage.setItem('adv_gantt_scale', m) }}
       />
     </div>
   )
