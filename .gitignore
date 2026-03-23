@@ -32,3 +32,6 @@ coverage/
 
 # Claude local files
 .claude/
+node_modules/
+package.json
+package-lock.json

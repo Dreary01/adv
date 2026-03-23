@@ -557,11 +557,10 @@ function HierarchyTab({ obj, onDeleteNode }: { obj: any; onDeleteNode: (node: an
     setLoading(true)
     api.getObjectSubtree(obj.id).then(data => {
       setSubtree(data || [])
-      // auto-open first level only if nothing saved for these nodes
-      const saved = readOpenNodes()
+      // auto-open first level only on first visit (no saved state at all)
+      const hasSavedState = sessionStorage.getItem(TREE_STORAGE_KEY) !== null
       const childIds = (data || []).map((n: any) => n.id)
-      const hasAny = childIds.some((id: string) => saved.has(id))
-      if (!hasAny && childIds.length > 0) {
+      if (!hasSavedState && childIds.length > 0) {
         setOpenNodes(prev => {
           const next = new Set(prev)
           childIds.forEach((id: string) => next.add(id))
@@ -768,24 +767,223 @@ function HierarchyTab({ obj, onDeleteNode }: { obj: any; onDeleteNode: (node: an
 
 // ─── Gantt Tab ──────────────────────────────────────────
 
-import GSTCRenderer from '../components/gantt/GSTCRenderer'
+import { Gantt as SVARGantt, Willow as SVARWillow } from '@svar-ui/react-gantt'
+import { cascadeSchedule, findCriticalPath } from '../lib/gantt-scheduler'
 import { toGanttData } from '../lib/gantt-types'
+
+const GANTT_SCALES = [
+  { unit: 'month' as any, step: 1, format: '%F %Y' },
+  { unit: 'day' as any, step: 1, format: '%j' },
+]
+
+const highlightWeekends = (date: Date) => {
+  const day = date.getDay()
+  return day === 0 || day === 6 ? 'wx-weekend' : ''
+}
+
+function GanttWithRealData({ data, onTaskDateChange, onDependencyCreate, onDependencyDelete, showCriticalPath, onToggleCriticalPath }: {
+  data: any; onTaskDateChange?: (id: string, start: string, end: string) => void; onDependencyCreate?: (from: string, to: string, type: string) => void; onDependencyDelete?: (depId: string) => void
+  showCriticalPath?: boolean; onToggleCriticalPath?: () => void
+}) {
+  if (!data || !data.tasks || data.tasks.length === 0) {
+    return <div className="empty-state py-12"><p className="empty-state-text">Нет задач с датами</p></div>
+  }
+
+  const MAX_GANTT_TASKS = 50000
+  const depTypeToSvar: Record<string, string> = { fs: 'e2s', ss: 's2s', ff: 'e2e', sf: 's2e' }
+
+  // Limit tasks for performance
+  const limitedTasks = data.tasks.slice(0, MAX_GANTT_TASKS)
+
+  const uuidToId: Record<string, number> = {}
+  const idToUuid: Record<number, string> = {}
+  limitedTasks.forEach((t: any, i: number) => { uuidToId[t.id] = i + 1; idToUuid[i + 1] = t.id })
+
+  const parentIds = new Set(limitedTasks.map((t: any) => t.parentId).filter(Boolean))
+
+  const tasks = limitedTasks.map((t: any, i: number) => {
+    const [y, m, d] = t.start.split('-').map(Number)
+    const [y2, m2, d2] = t.end.split('-').map(Number)
+    const start = new Date(y, m - 1, d)
+    const end = new Date(y2, m2 - 1, d2)
+    const dur = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000))
+    const parentNum = t.parentId ? uuidToId[t.parentId] : 0
+    const isSummary = parentIds.has(t.id)
+    // SVAR: summary tasks must NOT have start/duration (computed from children)
+    if (isSummary) {
+      return {
+        id: i + 1,
+        text: t.name,
+        progress: t.progress || 0,
+        parent: parentNum || 0,
+        type: 'summary' as const,
+        open: true,
+      }
+    }
+    return {
+      id: i + 1,
+      text: t.name,
+      start,
+      duration: dur,
+      progress: t.progress || 0,
+      parent: parentNum || 0,
+      type: 'task' as const,
+    }
+  })
+
+  // Compute critical path IDs
+  let criticalTaskIds = new Set<number>()
+  if (showCriticalPath) {
+    const schedulerTasks = tasks.filter((t: any) => t.type !== 'summary').map((t: any) => ({
+      id: t.id, start: t.start, end: t.end || new Date(t.start.getTime() + (t.duration || 1) * 86400000),
+      duration: t.duration || 1, type: t.type,
+    }))
+    const tempLinks = (data.dependencies || [])
+      .map((d: any, i: number) => ({
+        id: i + 1, source: uuidToId[d.fromId] || 0, target: uuidToId[d.toId] || 0,
+        type: depTypeToSvar[d.type] || 'e2s',
+      }))
+      .filter((l: any) => l.source > 0 && l.target > 0)
+    criticalTaskIds = findCriticalPath(schedulerTasks, tempLinks)
+  }
+
+  const links = (data.dependencies || [])
+    .map((d: any, i: number) => ({
+      id: i + 1,
+      source: uuidToId[d.fromId] || 0,
+      target: uuidToId[d.toId] || 0,
+      type: (depTypeToSvar[d.type] || 'e2s') as any,
+    }))
+    .filter((l: any) => l.source > 0 && l.target > 0)
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div className="flex items-center gap-4 mb-3">
+        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+          <input type="checkbox" checked={showCriticalPath || false}
+            onChange={() => onToggleCriticalPath?.()}
+            className="checkbox" />
+          Критический путь
+        </label>
+        {data.tasks.length > MAX_GANTT_TASKS && (
+          <span className="text-xs text-amber-600">Показаны первые {MAX_GANTT_TASKS} из {data.tasks.length} задач</span>
+        )}
+      </div>
+      <SVARWillow>
+        <div style={{ width: '100%', height: Math.min(tasks.length * 38 + 120, 700) }}>
+          <SVARGantt tasks={tasks} links={links} scales={GANTT_SCALES}
+            schedule={{ auto: true }}
+            highlightTime={highlightWeekends}
+            taskTemplate={showCriticalPath ? (({ data: taskData }: any) => {
+              const isCritical = criticalTaskIds.has(taskData.id)
+              return (
+                <div style={{
+                  background: isCritical ? '#ef4444' : undefined,
+                  borderRadius: 3, height: '100%', width: '100%',
+                  display: 'flex', alignItems: 'center', paddingLeft: 8,
+                  color: isCritical ? '#fff' : undefined,
+                  fontSize: 12, fontWeight: isCritical ? 600 : 400, overflow: 'hidden',
+                }}>
+                  {taskData.text}
+                </div>
+              )
+            }) : undefined}
+            init={(svarApi: any) => {
+              const fmt = (d: Date) => {
+                const y = d.getFullYear()
+                const m = String(d.getMonth() + 1).padStart(2, '0')
+                const day = String(d.getDate()).padStart(2, '0')
+                return `${y}-${m}-${day}`
+              }
+              const svarToDepType: Record<string, string> = { e2s: 'fs', s2s: 'ss', e2e: 'ff', s2e: 'sf' }
+
+              svarApi.on('update-task', (ev: any) => {
+                if (ev?.inProgress) return true
+                if (ev?.eventSource === 'schedule-tasks') return true
+                const { id, task } = ev || {}
+                const uuid = idToUuid[id]
+                if (uuid && task?.start && onTaskDateChange) {
+                  let end = task.end
+                  if (!end && task.duration) {
+                    end = new Date(task.start.getTime())
+                    end.setDate(end.getDate() + task.duration)
+                  }
+                  if (end) {
+                    onTaskDateChange(uuid, fmt(task.start), fmt(end))
+
+                    // Client-side cascade: shift dependent tasks
+                    const svarTasks = tasks.map((t: any) => ({
+                      id: t.id, start: t.start, end: t.end || new Date(t.start.getTime() + (t.duration || 1) * 86400000),
+                      duration: t.duration || 1, type: t.type,
+                    }))
+                    const changed = svarTasks.find((t: any) => t.id === id)
+                    if (changed) {
+                      changed.start = task.start
+                      changed.end = end
+                      changed.duration = task.duration || Math.round((end.getTime() - task.start.getTime()) / 86400000)
+                    }
+                    const cascaded = cascadeSchedule(svarTasks, links, id)
+                    cascaded.forEach(upd => {
+                      svarApi.exec('update-task', {
+                        id: upd.id,
+                        task: { start: upd.start, duration: upd.duration, end: upd.end },
+                        eventSource: 'schedule-tasks',
+                      })
+                      // Also save to backend
+                      const cascUuid = idToUuid[upd.id]
+                      if (cascUuid) onTaskDateChange(cascUuid, fmt(upd.start), fmt(upd.end))
+                    })
+                  }
+                }
+                return true
+              })
+              svarApi.on('add-link', (ev: any) => {
+                const link = ev?.link
+                if (link?.source && link?.target && onDependencyCreate) {
+                  const fromUuid = idToUuid[link.source]
+                  const toUuid = idToUuid[link.target]
+                  if (fromUuid && toUuid) {
+                    onDependencyCreate(fromUuid, toUuid, svarToDepType[link.type] || 'fs')
+                  }
+                }
+                return true
+              })
+              svarApi.on('delete-link', (ev: any) => {
+                if (ev?.id && onDependencyDelete) {
+                  const depData = data.dependencies[ev.id - 1]
+                  if (depData?.id) onDependencyDelete(depData.id)
+                }
+                return true
+              })
+            }}
+          />
+        </div>
+      </SVARWillow>
+    </div>
+  )
+}
 
 function GanttTab({ obj }: { obj: any }) {
   const [ganttData, setGanttData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [ganttKey, setGanttKey] = useState(0)
+  const [showCriticalPath, setShowCriticalPath] = useState(false)
 
-  useEffect(() => {
+  const loadGanttData = useCallback(() => {
     setLoading(true)
     Promise.all([
       api.getObjectSubtree(obj.id),
       api.getDependencies(obj.id),
     ]).then(([subtree, deps]) => {
       setGanttData(toGanttData(subtree || [], deps || []))
+      setGanttKey(k => k + 1)
     }).catch(() => {
       setGanttData({ tasks: [], dependencies: [] })
     }).finally(() => setLoading(false))
   }, [obj.id])
+
+  useEffect(() => { loadGanttData() }, [loadGanttData])
 
   const handleTaskDateChange = async (taskId: string, start: string, end: string) => {
     await api.upsertOperationalPlan(taskId, { start_date: start, end_date: end })
@@ -793,21 +991,26 @@ function GanttTab({ obj }: { obj: any }) {
 
   const handleDependencyCreate = async (fromId: string, toId: string, type: string) => {
     await api.createDependency(obj.id, { predecessor_id: fromId, successor_id: toId, type })
+    loadGanttData()
   }
 
   const handleDependencyDelete = async (depId: string) => {
     await api.deleteDependency(depId)
+    loadGanttData()
   }
 
-  if (loading) return <div className="text-sm text-gray-400 p-4">Загрузка диаграммы...</div>
+  if (loading && !ganttData) return <div className="text-sm text-gray-400 p-4">Загрузка диаграммы...</div>
 
   return (
     <div>
-      <GSTCRenderer
+      <GanttWithRealData
+        key={`${ganttKey}-${showCriticalPath}`}
         data={ganttData}
         onTaskDateChange={handleTaskDateChange}
         onDependencyCreate={handleDependencyCreate}
         onDependencyDelete={handleDependencyDelete}
+        showCriticalPath={showCriticalPath}
+        onToggleCriticalPath={() => setShowCriticalPath(p => !p)}
       />
     </div>
   )

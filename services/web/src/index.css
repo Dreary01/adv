@@ -523,3 +523,34 @@
     @apply opacity-0 group-hover:opacity-100 transition-opacity;
   }
 }
+
+/* SVAR Gantt: weekend highlighting */
+.wx-weekend {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* SVAR Gantt: critical path styling via custom css field */
+.gantt-critical .wx-task {
+  background-color: #ef4444 !important;
+  border-color: #dc2626 !important;
+}
+.gantt-critical .wx-progress-percent {
+  background-color: #dc2626 !important;
+}
+.gantt-critical .wx-task-label {
+  color: #fff !important;
+}
+[class*="gantt-critical"] td {
+  color: #ef4444 !important;
+  font-weight: 600 !important;
+}
+
+/* Fix SVAR Gantt link drag handles hidden by Tailwind preflight */
+.wx-willow-theme .wx-link-point,
+.wx-willow-theme [class*="link-point"],
+.wx-willow-theme [class*="link-handle"] {
+  pointer-events: auto !important;
+  opacity: 1 !important;
+  z-index: 10 !important;
+}
+

@@ -10,6 +10,7 @@ import ProjectsPage from './pages/ProjectsPage'
 import RefTablesPage from './pages/RefTablesPage'
 import RefTableDetailPage from './pages/RefTableDetailPage'
 import ObjectCardPage from './pages/ObjectCardPage'
+// import GanttTestPage from './pages/GanttTestPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore(s => s.isLoggedIn)

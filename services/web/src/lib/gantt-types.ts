@@ -42,16 +42,31 @@ export function toGanttData(subtree: any[], dependencies: any[]): GanttData {
   const tasks: GanttTask[] = []
   const today = new Date().toISOString().split('T')[0]
 
+  // Collect all IDs to validate parentId references
+  const allIds = new Set<string>()
+  const collectIds = (nodes: any[]) => {
+    for (const n of nodes) {
+      allIds.add(n.id)
+      if (n.children?.length) collectIds(n.children)
+    }
+  }
+  collectIds(subtree)
+
   const flatten = (nodes: any[], level = 0) => {
     for (const node of nodes) {
+      let start = node.plan_start_date || node.actual_start_date || today
+      let end = node.plan_end_date || node.actual_end_date || today
+      // Ensure start <= end
+      if (start > end) [start, end] = [end, start]
+
       tasks.push({
         id: node.id,
         name: node.name,
-        start: node.plan_start_date || node.actual_start_date || today,
-        end: node.plan_end_date || node.actual_end_date || today,
+        start,
+        end,
         progress: node.progress || 0,
         status: node.status || 'not_started',
-        parentId: node.parent_id,
+        parentId: node.parent_id && allIds.has(node.parent_id) ? node.parent_id : undefined,
         level,
         color: node.type_color,
         typeIcon: node.type_icon,

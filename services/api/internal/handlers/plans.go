@@ -143,6 +143,10 @@ func (h *PlanHandler) UpsertOperational(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "upsert plan failed: "+err.Error())
 		return
 	}
+
+	// Cascade: shift dependent tasks based on dependency links
+	h.cascadeDependencies(id, p.StartDate, p.EndDate)
+
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -175,6 +179,95 @@ func (h *PlanHandler) DeleteBaseline(w http.ResponseWriter, r *http.Request) {
 	h.db.Exec(context.Background(),
 		`DELETE FROM object_plans WHERE object_id = $1 AND plan_type = 'baseline'`, id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ─── Dependency Cascade ─────────────────────────────────
+
+// cascadeDependencies shifts successor tasks when a predecessor's dates change.
+// For each dependency from this task, ensures the successor doesn't start before
+// the predecessor ends (for FS) + lag days.
+func (h *PlanHandler) cascadeDependencies(predecessorID string, predStart, predEnd *string) {
+	if predEnd == nil && predStart == nil {
+		return
+	}
+
+	// Find all dependencies where this task is the predecessor
+	rows, err := h.db.Query(context.Background(),
+		`SELECT d.successor_id, d.type, d.lag_days
+		 FROM dependencies d WHERE d.predecessor_id = $1`, predecessorID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var successorID, depType string
+		var lagDays int
+		if err := rows.Scan(&successorID, &depType, &lagDays); err != nil {
+			continue
+		}
+
+		// Load successor's current plan
+		var succStart, succEnd *string
+		var succDuration *int
+		h.db.QueryRow(context.Background(),
+			`SELECT start_date::text, end_date::text, duration_days
+			 FROM object_plans WHERE object_id = $1 AND plan_type = 'operational'`,
+			successorID).Scan(&succStart, &succEnd, &succDuration)
+
+		if succStart == nil {
+			continue
+		}
+
+		// Calculate the earliest allowed start for successor
+		var earliestStart time.Time
+		switch depType {
+		case "fs": // Finish-to-Start: successor starts after predecessor ends
+			if predEnd != nil {
+				earliestStart = addBusinessDays(parseDate(*predEnd), lagDays+1)
+			}
+		case "ss": // Start-to-Start: successor starts after predecessor starts
+			if predStart != nil {
+				earliestStart = addBusinessDays(parseDate(*predStart), lagDays)
+			}
+		case "ff": // Finish-to-Finish: successor ends after predecessor ends
+			// Shift start so end aligns
+			if predEnd != nil && succDuration != nil {
+				earliestEnd := addBusinessDays(parseDate(*predEnd), lagDays)
+				earliestStart = subtractBusinessDays(earliestEnd, *succDuration)
+			}
+		case "sf": // Start-to-Finish: successor ends after predecessor starts
+			if predStart != nil && succDuration != nil {
+				earliestEnd := addBusinessDays(parseDate(*predStart), lagDays)
+				earliestStart = subtractBusinessDays(earliestEnd, *succDuration)
+			}
+		default:
+			continue
+		}
+
+		if earliestStart.IsZero() {
+			continue
+		}
+
+		// Only shift if successor currently starts too early
+		currentStart := parseDate(*succStart)
+		if currentStart.Before(earliestStart) {
+			newStart := earliestStart.Format("2006-01-02")
+			dur := 1
+			if succDuration != nil && *succDuration > 0 {
+				dur = *succDuration
+			}
+			newEnd := addBusinessDays(earliestStart, dur).Format("2006-01-02")
+
+			h.db.Exec(context.Background(),
+				`UPDATE object_plans SET start_date = $1, end_date = $2, updated_at = NOW()
+				 WHERE object_id = $3 AND plan_type = 'operational'`,
+				newStart, newEnd, successorID)
+
+			// Recurse: this successor may have its own dependents
+			h.cascadeDependencies(successorID, &newStart, &newEnd)
+		}
+	}
 }
 
 // ─── Business Day Helpers ───────────────────────────────
