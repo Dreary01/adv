@@ -53,7 +53,7 @@ export default function ObjectTypeDetailPage() {
   if (!type) return <div className="p-8 text-gray-400">Загрузка...</div>
 
   return (
-    <div className="page max-w-4xl space-y-5">
+    <div className="page space-y-5">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link to="/admin/object-types" className="icon-btn">

@@ -141,4 +141,22 @@ export const api = {
     request<any>(`/ref-records/${recordId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteRefRecord: (recordId: string) =>
     request<void>(`/ref-records/${recordId}`, { method: 'DELETE' }),
+
+  // Widget Layouts
+  getWidgetLayouts: (pageType: string, objectId?: string, typeId?: string) => {
+    const params = new URLSearchParams({ page_type: pageType })
+    if (objectId) params.set('object_id', objectId)
+    if (typeId) params.set('type_id', typeId)
+    return request<any[]>(`/widget-layouts?${params}`)
+  },
+  saveWidgetLayout: (data: { scope: string; page_type: string; object_id?: string; type_id?: string; layout: any }) =>
+    request<any>('/widget-layouts', { method: 'PUT', body: JSON.stringify({
+      scope: data.scope, page_type: data.page_type,
+      object_id: data.object_id || '', type_id: data.type_id || '',
+      layout: data.layout,
+    }) }),
+  deleteWidgetLayout: (scope: string, pageType: string, objectId?: string, typeId?: string) => {
+    const params = new URLSearchParams({ scope, page_type: pageType, object_id: objectId || '', type_id: typeId || '' })
+    return request<void>(`/widget-layouts?${params}`, { method: 'DELETE' })
+  },
 };

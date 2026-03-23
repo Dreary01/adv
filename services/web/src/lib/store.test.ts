@@ -3,7 +3,7 @@ import { useAuthStore } from './store'
 
 beforeEach(() => {
   localStorage.clear()
-  useAuthStore.setState({ user: null, token: null })
+  useAuthStore.setState({ user: null, token: null, userLoaded: false })
 })
 
 describe('useAuthStore', () => {

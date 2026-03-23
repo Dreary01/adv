@@ -251,11 +251,11 @@
   /* ─── Page Layout ────────────────────────────────────────── */
 
   .page {
-    @apply p-6 max-w-6xl mx-auto;
+    @apply p-6;
   }
 
   .page-wide {
-    @apply p-6 max-w-7xl mx-auto;
+    @apply p-6;
   }
 
   .page-header {
@@ -367,6 +367,11 @@
   .sidebar {
     @apply w-60 flex flex-col flex-shrink-0 relative;
     background: linear-gradient(180deg, #0f1729 0%, #0c1222 50%, #080e1b 100%);
+    transition: width 0.2s ease;
+  }
+
+  .sidebar-collapsed {
+    @apply w-14;
   }
 
   .sidebar::after {
@@ -383,8 +388,16 @@
     @apply px-5 py-5 border-b border-white/[0.06];
   }
 
+  .sidebar-collapsed .sidebar-brand {
+    @apply px-3 py-5 flex justify-center;
+  }
+
   .sidebar-nav {
     @apply flex-1 py-3 px-3 space-y-0.5 overflow-y-auto;
+  }
+
+  .sidebar-collapsed .sidebar-nav {
+    @apply px-2;
   }
 
   .sidebar-link {
@@ -393,13 +406,30 @@
            hover:bg-white/[0.06] hover:text-gray-200;
   }
 
+  .sidebar-link-icon-only {
+    @apply justify-center px-0 gap-0;
+  }
+
   .sidebar-link-active {
     @apply bg-primary-600/20 text-primary-300 font-medium;
     box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.05);
   }
 
+  .sidebar-collapse-btn {
+    @apply flex items-center gap-2 mx-3 mb-1 px-3 py-2 rounded-lg text-xs
+           text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] transition-all;
+  }
+
+  .sidebar-collapsed .sidebar-collapse-btn {
+    @apply justify-center mx-2 px-0;
+  }
+
   .sidebar-footer {
     @apply px-5 py-4 border-t border-white/[0.06];
+  }
+
+  .sidebar-collapsed .sidebar-footer {
+    @apply px-2 py-3;
   }
 
   /* ─── Filters Toolbar ────────────────────────────────────── */
@@ -448,6 +478,145 @@
 
   .widget-icon {
     @apply w-8 h-8 rounded-lg flex items-center justify-center;
+  }
+
+  /* ─── Widget Grid System ─────────────────────────────────── */
+
+  .widget-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1rem;
+  }
+
+  @media (max-width: 1023px) {
+    .widget-grid {
+      grid-template-columns: 1fr;
+    }
+    .widget-grid > .widget-cell {
+      grid-column: span 1 !important;
+    }
+  }
+
+  .widget-cell {
+    @apply relative min-w-0;
+  }
+
+  .widget-cell-editing {
+    @apply rounded-xl transition-all;
+    outline: 2px dashed theme('colors.primary.200');
+    outline-offset: 2px;
+  }
+
+  .widget-cell-editing:hover {
+    outline-color: theme('colors.primary.400');
+  }
+
+  .widget-cell-dragover {
+    outline-color: theme('colors.primary.500') !important;
+    outline-style: solid !important;
+    background: theme('colors.primary.50 / 30%');
+  }
+
+  .widget-edit-controls {
+    @apply absolute -top-3 left-2 right-2 z-20 flex items-center gap-1;
+  }
+
+  .widget-drag-handle {
+    @apply flex items-center gap-1 px-1.5 py-0.5 rounded-md
+           bg-white shadow-sm border border-gray-200
+           text-gray-400 text-[10px] font-medium
+           cursor-grab active:cursor-grabbing
+           hover:text-gray-600 hover:border-gray-300 transition-colors;
+  }
+
+  .widget-hide-btn {
+    @apply p-0.5 rounded-md bg-white shadow-sm border border-gray-200
+           text-gray-400 hover:text-red-500 hover:border-red-300 hover:bg-red-50
+           transition-colors;
+  }
+
+  .widget-title-btn {
+    @apply flex items-center gap-1 px-1.5 py-0.5 rounded-md
+           bg-white shadow-sm border border-gray-200
+           text-[10px] font-medium text-gray-600 max-w-[140px]
+           hover:border-primary-300 hover:text-primary-600 transition-colors cursor-pointer;
+  }
+
+  .widget-title-input {
+    @apply px-1.5 py-0.5 rounded-md text-[10px] font-medium
+           bg-white shadow-sm border border-primary-400
+           text-gray-800 w-[140px] outline-none;
+  }
+
+  .widget-size-label {
+    @apply ml-auto px-1.5 py-0.5 rounded-md bg-white shadow-sm border border-gray-200
+           text-[10px] font-mono text-gray-500;
+  }
+
+  .widget-resize-handle-right {
+    @apply absolute top-2 -right-1.5 bottom-2 w-3 z-20 cursor-col-resize
+           flex items-center justify-center
+           rounded-md opacity-0 transition-opacity;
+  }
+
+  .widget-cell-editing:hover .widget-resize-handle-right,
+  .widget-resize-handle-right:hover {
+    @apply opacity-100;
+  }
+
+  .widget-resize-dots-v {
+    @apply w-1 h-8 rounded-full bg-primary-400;
+  }
+
+  .widget-resize-handle-bottom {
+    @apply absolute -bottom-1.5 left-4 right-4 h-3 z-20 cursor-row-resize
+           flex justify-center items-center
+           rounded-md opacity-0 transition-opacity;
+  }
+
+  .widget-cell-editing:hover .widget-resize-handle-bottom,
+  .widget-resize-handle-bottom:hover {
+    @apply opacity-100;
+  }
+
+  .widget-resize-dots-h {
+    @apply h-1 w-8 rounded-full bg-primary-400;
+  }
+
+  .widget-resize-handle-corner-br {
+    @apply absolute -bottom-1.5 -right-1.5 w-4 h-4 z-30 cursor-nwse-resize
+           rounded-sm opacity-0 transition-opacity bg-primary-400;
+  }
+
+  .widget-cell-editing:hover .widget-resize-handle-corner-br {
+    @apply opacity-100;
+  }
+
+  .widget-toolbar {
+    @apply flex items-center gap-2 mb-4 px-4 py-2.5
+           bg-primary-50 border border-primary-200 rounded-xl;
+  }
+
+  /* ─── Widget Library Panel ───────────────────────────────── */
+
+  .widget-library-overlay {
+    @apply fixed inset-0 bg-black/20 z-40;
+    animation: fadeIn 0.15s ease-out;
+  }
+
+  .widget-library-panel {
+    @apply fixed top-0 right-0 bottom-0 w-80 bg-white shadow-2xl z-50 flex flex-col;
+    animation: slideInRight 0.2s ease-out;
+  }
+
+  @keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   /* ─── Tree / List Rows ───────────────────────────────────── */

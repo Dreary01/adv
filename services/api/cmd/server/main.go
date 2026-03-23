@@ -43,6 +43,7 @@ func main() {
 	planH := handlers.NewPlanHandler(pool)
 	depH := handlers.NewDependencyHandler(pool)
 	refRecH := handlers.NewRefRecordHandler(pool)
+	widgetLayoutH := handlers.NewWidgetLayoutHandler(pool)
 
 	r := chi.NewRouter()
 
@@ -156,6 +157,11 @@ func main() {
 		r.Get("/api/dashboard/requests", dashH.Requests)
 		r.Get("/api/dashboard/directions", dashH.Directions)
 		r.Get("/api/dashboard/events", dashH.Events)
+
+		// Widget Layouts
+		r.Get("/api/widget-layouts", widgetLayoutH.Get)
+		r.Put("/api/widget-layouts", widgetLayoutH.Save)
+		r.Delete("/api/widget-layouts", widgetLayoutH.Delete)
 	})
 
 	// start server

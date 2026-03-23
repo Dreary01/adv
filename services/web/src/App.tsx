@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './lib/store'
 import Layout from './components/layout/Layout'
@@ -11,6 +12,7 @@ import RefTablesPage from './pages/RefTablesPage'
 import RefTableDetailPage from './pages/RefTableDetailPage'
 import ObjectCardPage from './pages/ObjectCardPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import WidgetLibraryPage from './pages/WidgetLibraryPage'
 // import GanttTestPage from './pages/GanttTestPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -20,6 +22,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const loadUser = useAuthStore(s => s.loadUser)
+  useEffect(() => { loadUser() }, [loadUser])
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -30,6 +35,7 @@ export default function App() {
         <Route path="admin/requisites" element={<RequisitesPage />} />
         <Route path="admin/ref-tables" element={<RefTablesPage />} />
         <Route path="admin/ref-tables/:id" element={<RefTableDetailPage />} />
+        <Route path="admin/widgets" element={<WidgetLibraryPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<ObjectCardPage />} />

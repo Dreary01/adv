@@ -2,12 +2,13 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import {
-  ArrowLeft, Calendar, FileText, Flag, MoreVertical, Play, Pause, Square,
+  Calendar, FileText, Flag, MoreVertical, Play, Pause, Square,
   ChevronRight, ChevronDown, Plus, Search, User, Clock, Filter, X, Trash2, Pencil, Check,
   Folder, Target, CheckSquare, Briefcase, Layers, Users,
   Flag as FlagIcon, Settings as SettingsIcon, Activity, GripVertical, Database
 } from 'lucide-react'
 import ConfirmDeleteDialog from '../components/ui/ConfirmDeleteDialog'
+import WidgetGrid from '../components/widgets/WidgetGrid'
 import PivotView from '../components/analytics/PivotView'
 import { formatDateRu, businessDaysBetween, calculateForecast } from '../lib/date-utils'
 
@@ -72,107 +73,96 @@ export default function ObjectCardPage() {
   const color = obj.type_color || '#6366F1'
 
   return (
-    <div className="flex h-full">
-      {/* Left sidebar — tabs */}
-      <aside className="w-48 border-r border-gray-200 bg-gray-50/50 flex-shrink-0">
-        <div className="p-3">
-          <Link to="/projects" className="flex items-center gap-1.5 text-xs text-link mb-4">
-            <ArrowLeft size={12} /> Дерево проектов
-          </Link>
-        </div>
-        <nav className="space-y-0.5 px-2">
-          {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
-                activeTab === tab.id
-                  ? 'bg-primary-600/10 text-primary-600 font-medium'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}>
-              {tab.label}
-            </button>
-          ))}
-          {/* Placeholder tabs */}
-          {['Отчётность', 'Ресурсы', 'Документы'].map(label => (
-            <button key={label} disabled
-              className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-300 cursor-not-allowed opacity-60">
-              {label}
-            </button>
-          ))}
-        </nav>
-      </aside>
+    <div className="flex-1 overflow-auto">
+      {/* Breadcrumbs + Header + Tabs */}
+      <div className="border-b border-gray-200 bg-white sticky top-0 z-10">
+        <div className="px-6 pt-4 pb-0">
+          {/* Breadcrumbs */}
+          <div className="text-xs text-gray-400 mb-2">
+            <Link to="/projects" className="text-link">Все проекты</Link>
+            <span className="mx-1">/</span>
+            <span className="text-gray-600">{obj.name}</span>
+          </div>
 
-      {/* Main content */}
-      <div className="flex-1 overflow-auto">
-        {/* Breadcrumbs + Header */}
-        <div className="border-b border-gray-200 bg-white">
-          <div className="px-6 pt-4 pb-1">
-            {/* Breadcrumbs */}
-            <div className="text-xs text-gray-400 mb-2">
-              <Link to="/projects" className="text-link">Все проекты</Link>
-              <span className="mx-1">/</span>
-              <span className="text-gray-600">{obj.name}</span>
+          {/* Title row */}
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: color + '20', color }}>
+              <Icon size={16} />
             </div>
+            <h1 className="text-lg font-bold text-gray-900 flex-1">{obj.name}</h1>
 
-            {/* Title row */}
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ backgroundColor: color + '20', color }}>
-                <Icon size={16} />
-              </div>
-              <h1 className="text-lg font-bold text-gray-900 flex-1">{obj.name}</h1>
-
-              {/* Action icons */}
-              <div className="flex items-center gap-1">
-                <button className="btn-icon-sm" title="Календарь"><Calendar size={16} /></button>
-                <button className="btn-icon-sm" title="Документы"><FileText size={16} /></button>
-                <button className={`btn-icon-sm ${obj.priority > 0 ? 'text-orange-500' : ''}`}
-                  title="Приоритет"><Flag size={16} /></button>
-                <button className="btn-icon-sm text-red-400 hover:text-red-600 hover:bg-red-50"
-                  title="Удалить объект"
-                  onClick={() => setDeleteTarget(obj)}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* Participants */}
-            <div className="flex items-center gap-6 mb-3">
-              {obj.owner_id && (
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                    <User size={14} className="text-gray-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Руководитель</p>
-                    <p className="text-sm text-gray-700">—</p>
-                  </div>
-                </div>
-              )}
-              {obj.assignee_id && (
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                    <User size={14} className="text-gray-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Исполнитель</p>
-                    <p className="text-sm text-gray-700">—</p>
-                  </div>
-                </div>
-              )}
-              {!obj.owner_id && !obj.assignee_id && (
-                <p className="text-xs text-gray-400">Ответственные не назначены</p>
-              )}
+            {/* Action icons */}
+            <div className="flex items-center gap-1">
+              <button className="btn-icon-sm" title="Календарь"><Calendar size={16} /></button>
+              <button className="btn-icon-sm" title="Документы"><FileText size={16} /></button>
+              <button className={`btn-icon-sm ${obj.priority > 0 ? 'text-orange-500' : ''}`}
+                title="Приоритет"><Flag size={16} /></button>
+              <button className="btn-icon-sm text-red-400 hover:text-red-600 hover:bg-red-50"
+                title="Удалить объект"
+                onClick={() => setDeleteTarget(obj)}>
+                <Trash2 size={16} />
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Tab content */}
-        <div className="p-6">
-          {activeTab === 'main' && <MainTab obj={obj} onDeleteNode={setDeleteTarget} />}
-          {activeTab === 'gantt' && <GanttTab obj={obj} />}
-          {activeTab === 'ref-tables' && <RefTablesTab obj={obj} />}
-          {activeTab === 'events' && <EventsTab />}
+          {/* Participants */}
+          <div className="flex items-center gap-6 mb-3">
+            {obj.owner_id && (
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                  <User size={14} className="text-gray-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Руководитель</p>
+                  <p className="text-sm text-gray-700">—</p>
+                </div>
+              </div>
+            )}
+            {obj.assignee_id && (
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                  <User size={14} className="text-gray-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Исполнитель</p>
+                  <p className="text-sm text-gray-700">—</p>
+                </div>
+              </div>
+            )}
+            {!obj.owner_id && !obj.assignee_id && (
+              <p className="text-xs text-gray-400">Ответственные не назначены</p>
+            )}
+          </div>
+
+          {/* Horizontal tabs */}
+          <div className="flex items-center gap-1 -mb-px">
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2 text-sm border-b-2 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-primary-600 text-primary-600 font-medium'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}>
+                {tab.label}
+              </button>
+            ))}
+            {['Отчётность', 'Ресурсы', 'Документы'].map(label => (
+              <button key={label} disabled
+                className="px-4 py-2 text-sm border-b-2 border-transparent text-gray-300 cursor-not-allowed">
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
+      </div>
+
+      {/* Tab content */}
+      <div className="p-6">
+        {activeTab === 'main' && <MainTab obj={obj} onDeleteNode={setDeleteTarget} />}
+        {activeTab === 'gantt' && <GanttTabWidget obj={obj} />}
+        {activeTab === 'ref-tables' && <RefTablesTabWidget obj={obj} />}
+        {activeTab === 'events' && <EventsTabWidget obj={obj} />}
       </div>
 
       {/* Delete confirmation dialog */}
@@ -200,286 +190,72 @@ export default function ObjectCardPage() {
 // ─── Main Tab ───────────────────────────────────────────
 
 function MainTab({ obj, onDeleteNode }: { obj: any; onDeleteNode: (node: any) => void }) {
-  const stClass = statusCssClass[obj.status] || 'status-not-started'
-  const stLabel = statusLabel[obj.status] || statusLabel.not_started
-  const plans = obj.plans || []
-  const baseline = plans.find((p: any) => p.plan_type === 'baseline')
-  const operational = plans.find((p: any) => p.plan_type === 'operational')
-  const forecast = calculateForecast(obj)
-
-  // Date editing state
-  const [editDates, setEditDates] = useState(false)
-  const [dateForm, setDateForm] = useState({
-    start_date: operational?.start_date || '',
-    end_date: operational?.end_date || '',
-    duration_days: operational?.duration_days || '',
-    effort_hours: operational?.effort_hours || '',
-  })
-  const [saving, setSaving] = useState(false)
-
-  const startEditDates = () => {
-    setDateForm({
-      start_date: operational?.start_date || '',
-      end_date: operational?.end_date || '',
-      duration_days: operational?.duration_days || '',
-      effort_hours: operational?.effort_hours || '',
-    })
-    setEditDates(true)
-  }
-
-  const saveDates = async () => {
-    setSaving(true)
-    try {
-      await api.upsertOperationalPlan(obj.id, {
-        start_date: dateForm.start_date || null,
-        end_date: dateForm.end_date || null,
-        duration_days: dateForm.duration_days ? Number(dateForm.duration_days) : null,
-        effort_hours: dateForm.effort_hours ? Number(dateForm.effort_hours) : null,
-      })
-      setEditDates(false)
-      // Trigger reload (parent re-fetches obj)
-      window.location.reload()
-    } catch { }
-    setSaving(false)
-  }
-
-  const handleCreateBaseline = async () => {
-    await api.createBaseline(obj.id)
-    window.location.reload()
-  }
-
-  const duration = dateForm.start_date && dateForm.end_date
-    ? businessDaysBetween(dateForm.start_date, dateForm.end_date)
-    : operational?.duration_days || null
+  const hierarchyOverride = useMemo(() => ({
+    hierarchy: ({ obj: o, onDeleteNode: del }: import('../lib/widget-types').WidgetProps) =>
+      o ? <HierarchyTab obj={o} onDeleteNode={del || (() => {})} /> : null,
+  }), [])
 
   return (
-    <div className="space-y-5 max-w-4xl">
-      {/* Status + Widgets row */}
-      <div className="grid grid-cols-4 gap-4">
-        {/* Status */}
-        <div className="card">
-          <div className="card-body">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-500 uppercase font-medium">Статус</span>
-              <div className="flex gap-1">
-                <button className="btn-icon-sm text-blue-500" title="Старт"><Play size={12} /></button>
-                <button className="btn-icon-sm text-amber-500" title="Пауза"><Pause size={12} /></button>
-                <button className="btn-icon-sm text-red-500" title="Стоп"><Square size={12} /></button>
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{obj.progress}%</p>
-            <span className={stClass}>{stLabel}</span>
-            <div className="progress-bar mt-2">
-              <div className="progress-bar-fill progress-bar-fill-green" style={{ width: `${obj.progress}%` }} />
-            </div>
-          </div>
-        </div>
+    <WidgetGrid
+      pageType="object-main"
+      objectId={obj.id}
+      typeId={obj.type_id}
+      obj={obj}
+      onDeleteNode={onDeleteNode}
+      overrides={hierarchyOverride}
+    />
+  )
+}
 
-        {/* Widget: Report status */}
-        <div className="card">
-          <div className="card-body">
-            <span className="text-xs text-gray-500 uppercase font-medium">Отчёт о статусе</span>
-            <div className="flex items-center justify-center mt-4">
-              <div className="w-12 h-12 rounded-full bg-yellow-300" />
-            </div>
-            <p className="text-[10px] text-gray-400 mt-2 text-center">Будет реализовано</p>
-          </div>
-        </div>
+// ─── Tab Widgets (Gantt, RefTables, Events) ─────────────
 
-        {/* Widget: Budget */}
-        <div className="card">
-          <div className="card-body">
-            <span className="text-xs text-gray-500 uppercase font-medium">Бюджет проекта</span>
-            <p className="text-lg font-bold text-orange-500 mt-2">—</p>
-            <p className="text-xs text-gray-400">Будет реализовано</p>
-            <div className="progress-bar mt-2 h-1.5" />
-          </div>
-        </div>
+function GanttTabWidget({ obj }: { obj: any }) {
+  const ganttOverride = useMemo(() => ({
+    'gantt-chart': ({ obj: o }: import('../lib/widget-types').WidgetProps) =>
+      o ? <GanttTab obj={o} /> : null,
+  }), [])
 
-        {/* Widget: Effort */}
-        <div className="card">
-          <div className="card-body">
-            <span className="text-xs text-gray-500 uppercase font-medium">Трудозатраты</span>
-            <p className="text-lg font-bold text-orange-500 mt-2">—</p>
-            <p className="text-xs text-gray-400">Будет реализовано</p>
-            <div className="progress-bar mt-2 h-1.5" />
-          </div>
-        </div>
-      </div>
+  return (
+    <WidgetGrid
+      pageType="object-gantt"
+      objectId={obj.id}
+      typeId={obj.type_id}
+      obj={obj}
+      overrides={ganttOverride}
+    />
+  )
+}
 
-      {/* Dates — 3 columns */}
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-header-title">Сроки</h3>
-          {!editDates && (
-            <button onClick={startEditDates} className="btn-ghost btn-sm">
-              <Pencil size={13} /> Изменить
-            </button>
-          )}
-        </div>
-        <div className="card-body">
-          <div className="grid grid-cols-3 gap-6">
-            {/* Col 1: Operational (editable) */}
-            <div>
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Оперативный план</h4>
-              {editDates ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="label">Начало</label>
-                    <input type="date" value={dateForm.start_date}
-                      onChange={e => setDateForm({ ...dateForm, start_date: e.target.value })}
-                      className="input input-sm" />
-                  </div>
-                  <div>
-                    <label className="label">Завершение</label>
-                    <input type="date" value={dateForm.end_date}
-                      onChange={e => setDateForm({ ...dateForm, end_date: e.target.value })}
-                      className="input input-sm" />
-                  </div>
-                  <div>
-                    <label className="label">Длительность (раб. дн.)</label>
-                    <input type="number" min="1" value={dateForm.duration_days}
-                      onChange={e => setDateForm({ ...dateForm, duration_days: e.target.value })}
-                      className="input input-sm" placeholder={duration ? String(duration) : '—'} />
-                  </div>
-                  <div>
-                    <label className="label">Трудозатраты (ч.)</label>
-                    <input type="number" min="0" step="0.5" value={dateForm.effort_hours}
-                      onChange={e => setDateForm({ ...dateForm, effort_hours: e.target.value })}
-                      className="input input-sm" placeholder="—" />
-                  </div>
-                  <div className="form-actions">
-                    <button onClick={saveDates} disabled={saving} className="btn-primary btn-xs">
-                      {saving ? 'Сохранение...' : 'Сохранить'}
-                    </button>
-                    <button onClick={() => setEditDates(false)} className="btn-ghost btn-xs">Отмена</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Начало</span>
-                    <span className="text-sm font-semibold text-orange-500">{formatDateRu(operational?.start_date)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Завершение</span>
-                    <span className="text-sm font-semibold text-orange-500">{formatDateRu(operational?.end_date)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Длительность</span>
-                    <span className="text-sm text-gray-700">{operational?.duration_days ? `${operational.duration_days} раб. дн.` : '—'}</span>
-                  </div>
-                  {operational?.effort_hours && (
-                    <div className="flex justify-between">
-                      <span className="text-xs text-gray-500">Трудозатраты</span>
-                      <span className="text-sm text-gray-700">{operational.effort_hours} ч.</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+function RefTablesTabWidget({ obj }: { obj: any }) {
+  const refOverride = useMemo(() => ({
+    'ref-tables': ({ obj: o }: import('../lib/widget-types').WidgetProps) =>
+      o ? <RefTablesTab obj={o} /> : null,
+  }), [])
 
-            {/* Col 2: Baseline (read-only + snapshot button) */}
-            <div>
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Утверждённый план</h4>
-              {baseline ? (
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Начало</span>
-                    <span className="text-sm text-gray-700">{formatDateRu(baseline.start_date)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Завершение</span>
-                    <span className="text-sm text-gray-700">{formatDateRu(baseline.end_date)}</span>
-                  </div>
-                  {baseline.duration_days && (
-                    <div className="flex justify-between">
-                      <span className="text-xs text-gray-500">Длительность</span>
-                      <span className="text-sm text-gray-700">{baseline.duration_days} раб. дн.</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 italic">Не утверждён</p>
-              )}
-              {operational && (
-                <button onClick={handleCreateBaseline} className="btn-secondary btn-xs mt-3">
-                  {baseline ? 'Обновить' : 'Утвердить'}
-                </button>
-              )}
-            </div>
+  return (
+    <WidgetGrid
+      pageType="object-ref-tables"
+      objectId={obj.id}
+      typeId={obj.type_id}
+      obj={obj}
+      overrides={refOverride}
+    />
+  )
+}
 
-            {/* Col 3: Actual + Forecast (auto) */}
-            <div>
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Фактические</h4>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Начало</span>
-                  <span className="text-sm text-gray-700">{formatDateRu(obj.actual_start_date)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Завершение</span>
-                  <span className="text-sm text-gray-700">{formatDateRu(obj.actual_end_date)}</span>
-                </div>
-              </div>
-              {obj.status !== 'completed' && (forecast.start || forecast.end) && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Прогноз</h4>
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-xs text-gray-500">Начало</span>
-                      <span className="text-xs text-blue-600">{formatDateRu(forecast.start)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-xs text-gray-500">Завершение</span>
-                      <span className="text-xs text-blue-600">{formatDateRu(forecast.end)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+function EventsTabWidget({ obj }: { obj: any }) {
+  const eventsOverride = useMemo(() => ({
+    'events-feed': () => <EventsTab />,
+  }), [])
 
-      {/* Requisites (field_values) */}
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-header-title">Реквизиты проекта</h3>
-        </div>
-        <div className="card-body">
-          {obj.field_values && Object.keys(obj.field_values).length > 0 ? (
-            <table className="w-full">
-              <tbody className="divide-y divide-gray-50">
-                {Object.entries(obj.field_values).map(([key, value]) => (
-                  <tr key={key} className="hover:bg-gray-50">
-                    <td className="py-2 pr-4 text-sm text-gray-500 w-1/3">{key}</td>
-                    <td className="py-2 text-sm text-gray-900">{String(value)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-sm text-gray-400">Нет заполненных реквизитов</p>
-          )}
-        </div>
-      </div>
-
-      {/* Hierarchy */}
-      <HierarchyTab obj={obj} onDeleteNode={onDeleteNode} />
-
-      {/* Description */}
-      {obj.description && (
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-header-title">Описание</h3>
-          </div>
-          <div className="card-body">
-            <p className="text-sm text-gray-600 whitespace-pre-wrap">{obj.description}</p>
-          </div>
-        </div>
-      )}
-    </div>
+  return (
+    <WidgetGrid
+      pageType="object-events"
+      objectId={obj.id}
+      typeId={obj.type_id}
+      obj={obj}
+      overrides={eventsOverride}
+    />
   )
 }
 
@@ -1602,7 +1378,7 @@ function renderFieldValue(req: any, value: any) {
 
 function EventsTab() {
   return (
-    <div className="max-w-4xl">
+    <div>
       <div className="card">
         <div className="card-header">
           <div className="flex items-center gap-2">

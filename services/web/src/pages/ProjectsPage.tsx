@@ -208,10 +208,10 @@ function TreeRow({ node, level, isOpen, onToggle, onOpen, onDelete, viewMode, vi
       </div>
 
       {/* Name */}
-      <span className="text-sm font-medium text-primary-600 hover:underline flex-1 truncate cursor-pointer"
-        onClick={(e) => { e.stopPropagation(); onOpen(node.id) }}>
+      <a href={`/projects/${node.id}`} className="text-sm font-medium text-primary-600 hover:underline flex-1 truncate"
+        onClick={(e) => { e.stopPropagation(); if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) { e.preventDefault(); onOpen(node.id) } }}>
         {node.name}
-      </span>
+      </a>
 
       {/* Columns based on view mode */}
       {viewMode === 'brief' ? (

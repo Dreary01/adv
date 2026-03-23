@@ -523,3 +523,18 @@ INSERT INTO object_types (name, description, kind, icon, can_be_root, color) VAL
 ('Task', 'Individual work item', 'task', 'check-square', false, '#22C55E'),
 ('Milestone', 'Key checkpoint', 'task', 'flag', false, '#F59E0B'),
 ('Meeting', 'Scheduled meeting', 'task', 'users', false, '#EC4899');
+
+-- Widget Layouts
+CREATE TABLE IF NOT EXISTS widget_layouts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scope VARCHAR(20) NOT NULL CHECK (scope IN ('user', 'admin')),
+    page_type VARCHAR(50) NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    object_id UUID REFERENCES objects(id) ON DELETE CASCADE,
+    type_id UUID REFERENCES object_types(id) ON DELETE CASCADE,
+    layout JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(scope, page_type, user_id, object_id, type_id)
+);
+CREATE INDEX IF NOT EXISTS idx_widget_layouts_lookup ON widget_layouts(scope, page_type, user_id);
