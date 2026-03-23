@@ -8,6 +8,7 @@ import {
   Flag as FlagIcon, Settings as SettingsIcon, Activity, GripVertical, Database
 } from 'lucide-react'
 import ConfirmDeleteDialog from '../components/ui/ConfirmDeleteDialog'
+import PivotView from '../components/analytics/PivotView'
 import { formatDateRu, businessDaysBetween, calculateForecast } from '../lib/date-utils'
 
 const iconMap: Record<string, any> = {
@@ -1084,26 +1085,31 @@ function RefTablesTab({ obj }: { obj: any }) {
 function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: string }) {
   const [table, setTable] = useState<any>(null)
   const [records, setRecords] = useState<any[]>([])
+  const [aggregations, setAggregations] = useState<Record<string, any>>({})
   const [showAdd, setShowAdd] = useState(false)
   const [addData, setAddData] = useState<Record<string, string>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editData, setEditData] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [viewMode, setViewMode] = useState<'table' | 'pivot'>('table')
 
   const load = useCallback(() => {
     setLoading(true)
     Promise.all([
       api.getRefTable(tableId),
       api.getRefRecords(tableId, objectId),
-    ]).then(([t, r]) => {
+      api.getRefAggregations(tableId, objectId),
+    ]).then(([t, r, agg]) => {
       setTable(t)
       setRecords(r || [])
+      setAggregations(agg || {})
     }).catch(() => {}).finally(() => setLoading(false))
   }, [tableId, objectId])
 
   useEffect(() => { load() }, [load])
 
   const columns = (table?.columns || []).filter((c: any) => c.is_visible !== false)
+  const hasAggregations = Object.keys(aggregations).length > 0
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1138,14 +1144,47 @@ function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: st
         <div className="flex items-center gap-2">
           <h3 className="card-header-title">{table?.name || 'Справочник'}</h3>
           <span className="badge badge-gray">{records.length}</span>
+          {/* View mode toggle */}
+          <div className="flex ml-3 bg-gray-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                viewMode === 'table'
+                  ? 'bg-white text-gray-800 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Таблица
+            </button>
+            <button
+              onClick={() => setViewMode('pivot')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                viewMode === 'pivot'
+                  ? 'bg-white text-gray-800 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Сводная
+            </button>
+          </div>
         </div>
-        <button onClick={() => { setShowAdd(!showAdd); setEditingId(null) }} className="btn-primary btn-sm">
-          <Plus size={13} /> Добавить
-        </button>
+        {viewMode === 'table' && (
+          <button onClick={() => { setShowAdd(!showAdd); setEditingId(null) }} className="btn-primary btn-sm">
+            <Plus size={13} /> Добавить
+          </button>
+        )}
       </div>
 
-      {/* Add form */}
-      {showAdd && (
+      {/* Pivot mode */}
+      {viewMode === 'pivot' && (
+        <PivotView
+          data={records.map(r => r.data || {})}
+          columns={columns.map((c: any) => ({ id: c.requisite?.id, name: c.requisite?.name || '—', type: c.requisite?.type || 'string' }))}
+        />
+      )}
+
+      {/* Table mode */}
+      {viewMode === 'table' && showAdd && (
         <form onSubmit={handleAdd} className="px-4 py-3 bg-gray-50/50 border-b border-gray-100"
           style={{ animation: 'slideDown 0.2s ease-out' }}>
           <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1166,8 +1205,7 @@ function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: st
         </form>
       )}
 
-      {/* Table */}
-      {columns.length === 0 ? (
+      {viewMode === 'table' && (columns.length === 0 ? (
         <div className="empty-state py-8">
           <p className="empty-state-text">Нет колонок</p>
           <p className="empty-state-hint">Добавьте реквизиты к справочнику в администрировании</p>
@@ -1224,12 +1262,46 @@ function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: st
                   </tr>
                 )
               ))}
+              {/* Aggregation footer row */}
+              {hasAggregations && (
+                <tr className="bg-gray-50 border-t-2 border-gray-200 font-medium">
+                  <td className="text-xs text-gray-500 px-3 py-2 whitespace-nowrap">Итого</td>
+                  {columns.map((col: any) => {
+                    const req = col.requisite || {}
+                    const aggValue = aggregations[req.id]
+                    const aggLabel = col.aggregation
+                      ? AGGREGATION_LABELS[col.aggregation] || col.aggregation
+                      : ''
+                    if (aggValue === undefined || aggValue === null) {
+                      return <td key={col.id} className="text-gray-300 text-xs">—</td>
+                    }
+                    return (
+                      <td key={col.id} className="text-sm">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-900">
+                            {typeof aggValue === 'number'
+                              ? (col.aggregation?.startsWith('pct_') ? `${aggValue}%` : aggValue.toLocaleString('ru-RU'))
+                              : aggValue}
+                          </span>
+                          {aggLabel && <span className="text-[10px] text-gray-400">{aggLabel}</span>}
+                        </div>
+                      </td>
+                    )
+                  })}
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      ))}
     </div>
   )
+}
+
+const AGGREGATION_LABELS: Record<string, string> = {
+  sum: 'Сумма', min: 'Минимум', max: 'Максимум', avg: 'Среднее', median: 'Медиана',
+  count_empty: 'Пустые', count_filled: 'Заполненные', count_unique: 'Уникальные',
+  pct_empty: '% пустых', pct_filled: '% заполненных', pct_unique: '% уникальных',
 }
 
 // ─── Classifier Field (input + display) ─────────────────

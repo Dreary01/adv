@@ -545,6 +545,258 @@
   font-weight: 600 !important;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   react-pivottable — ADV Design Override
+   ═══════════════════════════════════════════════════════════ */
+
+.adv-pivot-wrap {
+  --pvt-border: #e5e7eb;
+  --pvt-bg: #ffffff;
+  --pvt-header-bg: #f8fafc;
+  --pvt-accent: #3d5af5;
+  --pvt-accent-light: #eef1fe;
+  --pvt-text: #1e293b;
+  --pvt-text-muted: #64748b;
+  --pvt-radius: 0.5rem;
+}
+
+.adv-pivot-wrap .pvtUi {
+  font-family: 'Outfit', sans-serif;
+  color: var(--pvt-text);
+  border: none;
+}
+
+/* ─── Axis containers (drag zones) ─────────────────────── */
+
+.adv-pivot-wrap .pvtUi td.pvtAxisContainer,
+.adv-pivot-wrap .pvtUi td.pvtVals {
+  background: var(--pvt-header-bg);
+  border: 1px dashed var(--pvt-border);
+  border-radius: var(--pvt-radius);
+  padding: 10px 12px;
+  vertical-align: top;
+  min-width: 140px;
+}
+
+.adv-pivot-wrap .pvtUi td.pvtAxisContainer li span.pvtAttr {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--pvt-text);
+  background: var(--pvt-bg);
+  border: 1px solid var(--pvt-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: grab;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.adv-pivot-wrap .pvtUi td.pvtAxisContainer li span.pvtAttr:hover {
+  border-color: var(--pvt-accent);
+  background: var(--pvt-accent-light);
+  box-shadow: 0 2px 6px rgba(61,90,245,0.12);
+}
+
+/* Active (placed) attributes */
+.adv-pivot-wrap .pvtUi .pvtRows li span.pvtAttr,
+.adv-pivot-wrap .pvtUi .pvtCols li span.pvtAttr {
+  background: var(--pvt-accent-light);
+  border-color: #c7d2fe;
+  color: var(--pvt-accent);
+}
+
+/* ─── Dropdowns (aggregator, renderer) ─────────────────── */
+
+.adv-pivot-wrap .pvtUi select,
+.adv-pivot-wrap .pvtUi .pvtDropdown {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.75rem;
+  padding: 5px 24px 5px 10px;
+  border: 1px solid var(--pvt-border);
+  border-radius: 6px;
+  background-color: var(--pvt-bg);
+  color: var(--pvt-text);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M2.5%204.5L6%208l3.5-3.5%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E');
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 12px;
+}
+
+.adv-pivot-wrap .pvtUi select:hover {
+  border-color: var(--pvt-accent);
+}
+
+.adv-pivot-wrap .pvtUi select:focus {
+  outline: none;
+  border-color: var(--pvt-accent);
+  box-shadow: 0 0 0 3px rgba(61,90,245,0.12);
+}
+
+/* ─── The Pivot Table itself ───────────────────────────── */
+
+.adv-pivot-wrap table.pvtTable {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8125rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  border: none;
+}
+
+.adv-pivot-wrap table.pvtTable thead tr th {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pvt-text-muted);
+  background: var(--pvt-header-bg);
+  border-bottom: 2px solid var(--pvt-border);
+  border-right: 1px solid #f1f5f9;
+  padding: 8px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.adv-pivot-wrap table.pvtTable tbody tr th {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--pvt-text);
+  background: var(--pvt-header-bg);
+  border-bottom: 1px solid #f1f5f9;
+  border-right: 2px solid var(--pvt-border);
+  padding: 6px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.adv-pivot-wrap table.pvtTable tbody tr td {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8125rem;
+  color: var(--pvt-text);
+  border-bottom: 1px solid #f8fafc;
+  border-right: 1px solid #f8fafc;
+  padding: 6px 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-pivot-wrap table.pvtTable tbody tr:hover td {
+  background: rgba(61, 90, 245, 0.03);
+}
+
+/* Grand total row/col */
+.adv-pivot-wrap table.pvtTable .pvtGrandTotal,
+.adv-pivot-wrap table.pvtTable .pvtTotal {
+  font-weight: 600;
+  background: #f1f5f9;
+  color: var(--pvt-text);
+  border-top: 2px solid var(--pvt-border);
+}
+
+.adv-pivot-wrap table.pvtTable .pvtTotalLabel {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+}
+
+/* ─── Filter popup ─────────────────────────────────────── */
+
+.adv-pivot-wrap .pvtFilterBox {
+  font-family: 'Outfit', sans-serif;
+  border: 1px solid var(--pvt-border);
+  border-radius: var(--pvt-radius);
+  box-shadow: 0 8px 24px -4px rgba(0,0,0,0.12), 0 4px 8px -2px rgba(0,0,0,0.06);
+  background: var(--pvt-bg);
+  padding: 12px;
+  z-index: 100;
+}
+
+.adv-pivot-wrap .pvtFilterBox input[type="text"] {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.75rem;
+  border: 1px solid var(--pvt-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.adv-pivot-wrap .pvtFilterBox input[type="text"]:focus {
+  outline: none;
+  border-color: var(--pvt-accent);
+  box-shadow: 0 0 0 3px rgba(61,90,245,0.12);
+}
+
+.adv-pivot-wrap .pvtFilterBox button {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border: 1px solid var(--pvt-border);
+  border-radius: 6px;
+  background: var(--pvt-bg);
+  color: var(--pvt-text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.adv-pivot-wrap .pvtFilterBox button:hover {
+  border-color: var(--pvt-accent);
+  color: var(--pvt-accent);
+}
+
+/* ─── Attribute close button ───────────────────────────── */
+
+.adv-pivot-wrap .pvtTriangle {
+  color: var(--pvt-text-muted);
+  cursor: pointer;
+}
+
+.adv-pivot-wrap .pvtTriangle:hover {
+  color: var(--pvt-accent);
+}
+
+/* ─── Search within attributes ─────────────────────────── */
+
+.adv-pivot-wrap .pvtSearch {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.75rem;
+  border: 1px solid var(--pvt-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+/* ─── Cleanup: remove default ugly borders ─────────────── */
+
+.adv-pivot-wrap .pvtUi td {
+  border: none;
+}
+
+.adv-pivot-wrap .pvtUi > tbody > tr > td {
+  padding: 4px;
+}
+
+/* ─── Renderer area ────────────────────────────────────── */
+
+.adv-pivot-wrap .pvtRendererArea {
+  padding: 0;
+}
+
+.adv-pivot-wrap .pvtOutput {
+  overflow-x: auto;
+}
+
 /* Fix SVAR Gantt link drag handles hidden by Tailwind preflight */
 .wx-willow-theme .wx-link-point,
 .wx-willow-theme [class*="link-point"],

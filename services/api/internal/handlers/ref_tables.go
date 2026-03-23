@@ -56,7 +56,7 @@ func (h *RefTableHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	colRows, _ := h.db.Query(context.Background(),
-		`SELECT c.id, c.table_id, c.requisite_id, c.sort_order, c.is_visible,
+		`SELECT c.id, c.table_id, c.requisite_id, c.sort_order, c.is_visible, c.aggregation,
 		        r.id, r.name, r.description, r.type, r.config, r.is_unique
 		 FROM reference_table_columns c
 		 JOIN requisites r ON r.id = c.requisite_id
@@ -66,7 +66,7 @@ func (h *RefTableHandler) Get(w http.ResponseWriter, r *http.Request) {
 		for colRows.Next() {
 			var col models.RefTableColumn
 			var req models.Requisite
-			colRows.Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible,
+			colRows.Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible, &col.Aggregation,
 				&req.ID, &req.Name, &req.Description, &req.Type, &req.Config, &req.IsUnique)
 			col.Requisite = &req
 			t.Columns = append(t.Columns, col)
@@ -157,6 +157,7 @@ func (h *RefTableHandler) AddColumn(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		RequisiteID string `json:"requisite_id"`
 		SortOrder   int    `json:"sort_order"`
+		Aggregation string `json:"aggregation"`
 	}
 	if err := decodeJSON(r, &input); err != nil || input.RequisiteID == "" {
 		writeError(w, http.StatusBadRequest, "requisite_id is required")
@@ -164,13 +165,41 @@ func (h *RefTableHandler) AddColumn(w http.ResponseWriter, r *http.Request) {
 	}
 	var col models.RefTableColumn
 	h.db.QueryRow(context.Background(),
-		`INSERT INTO reference_table_columns (table_id, requisite_id, sort_order)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (table_id, requisite_id) DO UPDATE SET sort_order = EXCLUDED.sort_order
-		 RETURNING id, table_id, requisite_id, sort_order, is_visible`,
-		tableID, input.RequisiteID, input.SortOrder,
-	).Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible)
+		`INSERT INTO reference_table_columns (table_id, requisite_id, sort_order, aggregation)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (table_id, requisite_id) DO UPDATE SET sort_order = EXCLUDED.sort_order, aggregation = EXCLUDED.aggregation
+		 RETURNING id, table_id, requisite_id, sort_order, is_visible, aggregation`,
+		tableID, input.RequisiteID, input.SortOrder, input.Aggregation,
+	).Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible, &col.Aggregation)
 	writeJSON(w, http.StatusCreated, col)
+}
+
+func (h *RefTableHandler) UpdateColumn(w http.ResponseWriter, r *http.Request) {
+	colID := chi.URLParam(r, "colId")
+	var input struct {
+		Aggregation *string `json:"aggregation"`
+		IsVisible   *bool   `json:"is_visible"`
+		SortOrder   *int    `json:"sort_order"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	var col models.RefTableColumn
+	err := h.db.QueryRow(context.Background(),
+		`UPDATE reference_table_columns SET
+			aggregation = COALESCE($1, aggregation),
+			is_visible = COALESCE($2, is_visible),
+			sort_order = COALESCE($3, sort_order)
+		 WHERE id = $4
+		 RETURNING id, table_id, requisite_id, sort_order, is_visible, aggregation`,
+		input.Aggregation, input.IsVisible, input.SortOrder, colID,
+	).Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible, &col.Aggregation)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "update column failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, col)
 }
 
 func (h *RefTableHandler) DeleteColumn(w http.ResponseWriter, r *http.Request) {

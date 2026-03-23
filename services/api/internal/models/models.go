@@ -155,6 +155,7 @@ type RefTableColumn struct {
 	Requisite   *Requisite `json:"requisite,omitempty"`
 	SortOrder   int        `json:"sort_order"`
 	IsVisible   bool       `json:"is_visible"`
+	Aggregation string     `json:"aggregation"`
 }
 
 type Trigger struct {

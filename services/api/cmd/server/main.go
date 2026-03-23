@@ -100,6 +100,7 @@ func main() {
 
 		// Reference Records
 		r.Get("/api/ref-tables/{tableId}/records", refRecH.List)
+		r.Get("/api/ref-tables/{tableId}/aggregations", refRecH.Aggregations)
 		r.Post("/api/ref-tables/{tableId}/records", refRecH.Create)
 		r.Put("/api/ref-records/{recordId}", refRecH.Update)
 		r.Delete("/api/ref-records/{recordId}", refRecH.Delete)
@@ -137,6 +138,7 @@ func main() {
 		r.Put("/api/ref-tables/{id}", refTableH.Update)
 		r.Delete("/api/ref-tables/{id}", refTableH.Delete)
 		r.Post("/api/ref-tables/{id}/columns", refTableH.AddColumn)
+		r.Put("/api/ref-tables/columns/{colId}", refTableH.UpdateColumn)
 		r.Delete("/api/ref-tables/columns/{colId}", refTableH.DeleteColumn)
 
 		// Todos

@@ -10,6 +10,7 @@ import ProjectsPage from './pages/ProjectsPage'
 import RefTablesPage from './pages/RefTablesPage'
 import RefTableDetailPage from './pages/RefTableDetailPage'
 import ObjectCardPage from './pages/ObjectCardPage'
+import AnalyticsPage from './pages/AnalyticsPage'
 // import GanttTestPage from './pages/GanttTestPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="admin/requisites" element={<RequisitesPage />} />
         <Route path="admin/ref-tables" element={<RefTablesPage />} />
         <Route path="admin/ref-tables/:id" element={<RefTableDetailPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<ObjectCardPage />} />
       </Route>

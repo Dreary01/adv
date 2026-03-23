@@ -4,6 +4,31 @@ import { api } from '../lib/api'
 import { useRef } from 'react'
 import { ArrowLeft, Plus, X, Pencil, Save, Database, Trash2, GripVertical } from 'lucide-react'
 
+const UNIVERSAL_AGGREGATIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Пусто' },
+  { value: 'count_empty', label: 'Пустые' },
+  { value: 'count_filled', label: 'Заполненные' },
+  { value: 'count_unique', label: 'Уникальные' },
+  { value: 'pct_empty', label: '% пустых' },
+  { value: 'pct_filled', label: '% заполненных' },
+  { value: 'pct_unique', label: '% уникальных' },
+]
+
+const NUMERIC_AGGREGATIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Пусто' },
+  { value: 'sum', label: 'Сумма' },
+  { value: 'min', label: 'Минимум' },
+  { value: 'max', label: 'Максимум' },
+  { value: 'avg', label: 'Среднее' },
+  { value: 'median', label: 'Медиана' },
+  { value: 'count_empty', label: 'Пустые' },
+  { value: 'count_filled', label: 'Заполненные' },
+  { value: 'count_unique', label: 'Уникальные' },
+  { value: 'pct_empty', label: '% пустых' },
+  { value: 'pct_filled', label: '% заполненных' },
+  { value: 'pct_unique', label: '% уникальных' },
+]
+
 const structureLabels: Record<string, string> = { flat: 'Плоский список', hierarchical: 'Иерархическая', vertical: 'Вертикальный список' }
 const inputModeLabels: Record<string, string> = { inline: 'Строка ввода', modal: 'Всплывающее окно' }
 const typeBadges: Record<string, string> = {
@@ -240,6 +265,11 @@ function ColumnsPortlet({ table, allReqs, tableId, onReload }: { table: any; all
   }
   const handleDragEnd = () => { setDragIdx(null); setOverIdx(null) }
 
+  const handleAggregationChange = async (colId: string, aggregation: string) => {
+    await api.updateRefTableColumn(colId, { aggregation })
+    onReload()
+  }
+
   return (
     <div className="portlet">
       <div className="portlet-header">
@@ -269,9 +299,21 @@ function ColumnsPortlet({ table, allReqs, tableId, onReload }: { table: any; all
         </div>
       )}
 
+      {/* Column header */}
+      {columns.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-medium text-gray-500 uppercase">
+          <div className="w-5" />
+          <div className="w-16">Тип</div>
+          <div className="flex-1">Название</div>
+          <div className="w-44">Агрегация</div>
+          <div className="w-8" />
+        </div>
+      )}
+
       <div className="portlet-body" onDragEnd={handleDragEnd}>
         {columns.map((col: any, idx: number) => {
           const r = col.requisite || {}
+          const isNumeric = r.type === 'number' || r.type === 'formula'
           return (
             <div key={col.id}
               draggable
@@ -285,6 +327,16 @@ function ColumnsPortlet({ table, allReqs, tableId, onReload }: { table: any; all
               <span className={typeBadges[r.type] || 'badge badge-gray'}>{r.type}</span>
               <Link to="/admin/requisites" className="flex-1 text-sm font-medium text-link">{r.name}</Link>
               {!col.is_visible && <span className="badge badge-gray">Скрыт</span>}
+              <select
+                value={col.aggregation || ''}
+                onChange={e => handleAggregationChange(col.id, e.target.value)}
+                className="select select-sm w-44"
+                onClick={e => e.stopPropagation()}
+              >
+                {(isNumeric ? NUMERIC_AGGREGATIONS : UNIVERSAL_AGGREGATIONS).map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
               <button onClick={() => { api.deleteRefTableColumn(col.id).then(onReload) }}
                 className="icon-btn-danger reveal-on-hover p-1" title="Удалить колонку">
                 <Trash2 size={13} />

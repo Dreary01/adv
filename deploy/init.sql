@@ -179,6 +179,7 @@ CREATE TABLE reference_table_columns (
     requisite_id UUID REFERENCES requisites(id) ON DELETE CASCADE,
     sort_order INT DEFAULT 0,
     is_visible BOOLEAN DEFAULT true,
+    aggregation VARCHAR(32) DEFAULT '',
     UNIQUE (table_id, requisite_id)
 );
 

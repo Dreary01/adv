@@ -15,6 +15,7 @@ vi.mock('../lib/api', () => ({
     getTypeRefTables: vi.fn(),
     getRefTable: vi.fn(),
     getRefRecords: vi.fn(),
+    getRefAggregations: vi.fn(),
     createRefRecord: vi.fn(),
     updateRefRecord: vi.fn(),
     deleteRefRecord: vi.fn(),
@@ -100,6 +101,7 @@ beforeEach(() => {
   mockApi.getTypeRefTables.mockResolvedValue([sampleRefTable])
   mockApi.getRefTable.mockResolvedValue(sampleRefTable)
   mockApi.getRefRecords.mockResolvedValue(sampleRecords)
+  mockApi.getRefAggregations.mockResolvedValue({})
   mockApi.createRefRecord.mockResolvedValue({ id: 'rec-2' })
   mockApi.updateRefRecord.mockResolvedValue({})
   mockApi.deleteRefRecord.mockResolvedValue(undefined)
@@ -196,6 +198,58 @@ describe('formula columns', () => {
     renderWithRouter('/projects/obj-1?tab=ref-tables')
     await waitFor(() => {
       expect(screen.getByText('42')).toBeInTheDocument()
+    })
+  })
+})
+
+describe('aggregation row', () => {
+  it('shows aggregation footer when aggregations are present', async () => {
+    const tableWithAgg = {
+      ...sampleRefTable,
+      columns: [
+        { id: 'c1', requisite_id: 'req-str', requisite: { id: 'req-str', name: 'Название', type: 'string', config: {} }, is_visible: true, aggregation: '' },
+        { id: 'c2', requisite_id: 'req-num', requisite: { id: 'req-num', name: 'Сумма', type: 'number', config: {} }, is_visible: true, aggregation: 'sum' },
+      ],
+    }
+    mockApi.getTypeRefTables.mockResolvedValue([tableWithAgg])
+    mockApi.getRefTable.mockResolvedValue(tableWithAgg)
+    mockApi.getRefRecords.mockResolvedValue([
+      { id: 'r1', data: { 'req-str': 'A', 'req-num': '10' }, sort_order: 0, is_approved: false, created_at: '', updated_at: '' },
+      { id: 'r2', data: { 'req-str': 'B', 'req-num': '20' }, sort_order: 1, is_approved: false, created_at: '', updated_at: '' },
+    ])
+    mockApi.getRefAggregations.mockResolvedValue({ 'req-num': 30 })
+    renderWithRouter('/projects/obj-1?tab=ref-tables')
+    await waitFor(() => {
+      expect(screen.getByText('Итого')).toBeInTheDocument()
+      expect(screen.getByText('30')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show aggregation row when no aggregations', async () => {
+    mockApi.getRefAggregations.mockResolvedValue({})
+    renderWithRouter('/projects/obj-1?tab=ref-tables')
+    await waitFor(() => {
+      expect(screen.getByText('Добавить')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Итого')).not.toBeInTheDocument()
+  })
+
+  it('shows percentage aggregation with % suffix', async () => {
+    const tableWithPct = {
+      ...sampleRefTable,
+      columns: [
+        { id: 'c1', requisite_id: 'req-num', requisite: { id: 'req-num', name: 'Число', type: 'number', config: {} }, is_visible: true, aggregation: 'pct_filled' },
+      ],
+    }
+    mockApi.getTypeRefTables.mockResolvedValue([tableWithPct])
+    mockApi.getRefTable.mockResolvedValue(tableWithPct)
+    mockApi.getRefRecords.mockResolvedValue([
+      { id: 'r1', data: { 'req-num': '10' }, sort_order: 0, is_approved: false, created_at: '', updated_at: '' },
+    ])
+    mockApi.getRefAggregations.mockResolvedValue({ 'req-num': 100 })
+    renderWithRouter('/projects/obj-1?tab=ref-tables')
+    await waitFor(() => {
+      expect(screen.getByText('100%')).toBeInTheDocument()
     })
   })
 })

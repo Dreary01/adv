@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -276,6 +277,225 @@ func parseFactor(tokens []interface{}, pos *int) *float64 {
 		return result
 	}
 	return nil
+}
+
+// Aggregations computes aggregated values for each column with aggregation set
+func (h *RefRecordHandler) Aggregations(w http.ResponseWriter, r *http.Request) {
+	tableID := chi.URLParam(r, "tableId")
+	objectID := r.URL.Query().Get("object_id")
+
+	// Get columns with aggregation set
+	colRows, err := h.db.Query(context.Background(),
+		`SELECT c.requisite_id, c.aggregation, r.type
+		 FROM reference_table_columns c
+		 JOIN requisites r ON r.id = c.requisite_id
+		 WHERE c.table_id = $1 AND c.aggregation != ''`, tableID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{})
+		return
+	}
+	defer colRows.Close()
+
+	type aggCol struct {
+		requisiteID string
+		aggregation string
+		reqType     string
+	}
+	var aggCols []aggCol
+	for colRows.Next() {
+		var ac aggCol
+		if err := colRows.Scan(&ac.requisiteID, &ac.aggregation, &ac.reqType); err != nil {
+			continue
+		}
+		aggCols = append(aggCols, ac)
+	}
+	if len(aggCols) == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{})
+		return
+	}
+
+	// Load records
+	query := `SELECT data FROM reference_records WHERE table_id = $1`
+	args := []interface{}{tableID}
+	if objectID != "" {
+		query += ` AND object_id = $2`
+		args = append(args, objectID)
+	}
+	rows, err := h.db.Query(context.Background(), query, args...)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{})
+		return
+	}
+	defer rows.Close()
+
+	// Load formula columns to compute formula values before aggregation
+	formulaCols := h.getFormulaColumns(tableID)
+
+	// Collect all values per requisite
+	valuesMap := make(map[string][]interface{}) // requisiteID -> values
+	totalRecords := 0
+	for rows.Next() {
+		var dataJSON json.RawMessage
+		if err := rows.Scan(&dataJSON); err != nil {
+			continue
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(dataJSON, &data); err != nil {
+			continue
+		}
+		// Compute formula values for this record
+		for _, fc := range formulaCols {
+			result := evaluateFormula(fc.elements, data)
+			if result != nil {
+				data[fc.requisiteID] = *result
+			}
+		}
+		totalRecords++
+		for _, ac := range aggCols {
+			val, exists := data[ac.requisiteID]
+			if !exists || val == nil || val == "" {
+				valuesMap[ac.requisiteID] = append(valuesMap[ac.requisiteID], nil)
+			} else {
+				valuesMap[ac.requisiteID] = append(valuesMap[ac.requisiteID], val)
+			}
+		}
+	}
+
+	// Compute aggregations
+	result := make(map[string]interface{})
+	for _, ac := range aggCols {
+		vals := valuesMap[ac.requisiteID]
+		result[ac.requisiteID] = computeAggregation(ac.aggregation, vals, totalRecords)
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func computeAggregation(aggType string, values []interface{}, totalRecords int) interface{} {
+	// Separate empty vs filled values (works for any type)
+	var filledVals []interface{}
+	nullCount := 0
+	for _, v := range values {
+		if v == nil {
+			nullCount++
+			continue
+		}
+		// Treat empty strings as null
+		if s, ok := v.(string); ok && s == "" {
+			nullCount++
+			continue
+		}
+		filledVals = append(filledVals, v)
+	}
+	filledCount := len(filledVals)
+
+	// Universal aggregations (work with any type)
+	switch aggType {
+	case "count_empty":
+		return nullCount
+	case "count_filled":
+		return filledCount
+	case "count_unique":
+		unique := make(map[string]bool)
+		for _, v := range filledVals {
+			unique[fmt.Sprintf("%v", v)] = true
+		}
+		return len(unique)
+	case "pct_empty":
+		if totalRecords == 0 {
+			return 0
+		}
+		return math.Round(float64(nullCount)/float64(totalRecords)*10000) / 100
+	case "pct_filled":
+		if totalRecords == 0 {
+			return 0
+		}
+		return math.Round(float64(filledCount)/float64(totalRecords)*10000) / 100
+	case "pct_unique":
+		if filledCount == 0 {
+			return 0
+		}
+		unique := make(map[string]bool)
+		for _, v := range filledVals {
+			unique[fmt.Sprintf("%v", v)] = true
+		}
+		return math.Round(float64(len(unique))/float64(filledCount)*10000) / 100
+	}
+
+	// Numeric-only aggregations
+	var nums []float64
+	for _, v := range filledVals {
+		f, err := toFloat(v)
+		if err != nil {
+			continue
+		}
+		nums = append(nums, f)
+	}
+
+	switch aggType {
+	case "sum":
+		if len(nums) == 0 {
+			return 0
+		}
+		sum := 0.0
+		for _, n := range nums {
+			sum += n
+		}
+		return math.Round(sum*100) / 100
+	case "min":
+		if len(nums) == 0 {
+			return nil
+		}
+		min := nums[0]
+		for _, n := range nums[1:] {
+			if n < min {
+				min = n
+			}
+		}
+		return min
+	case "max":
+		if len(nums) == 0 {
+			return nil
+		}
+		max := nums[0]
+		for _, n := range nums[1:] {
+			if n > max {
+				max = n
+			}
+		}
+		return max
+	case "avg":
+		if len(nums) == 0 {
+			return nil
+		}
+		sum := 0.0
+		for _, n := range nums {
+			sum += n
+		}
+		return math.Round(sum/float64(len(nums))*100) / 100
+	case "median":
+		if len(nums) == 0 {
+			return nil
+		}
+		sorted := make([]float64, len(nums))
+		copy(sorted, nums)
+		sortFloats(sorted)
+		mid := len(sorted) / 2
+		if len(sorted)%2 == 0 {
+			return math.Round((sorted[mid-1]+sorted[mid])/2*100) / 100
+		}
+		return sorted[mid]
+	default:
+		return nil
+	}
+}
+
+func sortFloats(a []float64) {
+	for i := 1; i < len(a); i++ {
+		for j := i; j > 0 && a[j] < a[j-1]; j-- {
+			a[j], a[j-1] = a[j-1], a[j]
+		}
+	}
 }
 
 // Create adds a new record

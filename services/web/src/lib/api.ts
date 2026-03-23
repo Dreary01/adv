@@ -106,6 +106,8 @@ export const api = {
   deleteRefTable: (id: string) => request<void>(`/ref-tables/${id}`, { method: 'DELETE' }),
   addRefTableColumn: (tableId: string, data: any) =>
     request<any>(`/ref-tables/${tableId}/columns`, { method: 'POST', body: JSON.stringify(data) }),
+  updateRefTableColumn: (colId: string, data: any) =>
+    request<any>(`/ref-tables/columns/${colId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteRefTableColumn: (colId: string) =>
     request<void>(`/ref-tables/columns/${colId}`, { method: 'DELETE' }),
 
@@ -128,6 +130,10 @@ export const api = {
   getRefRecords: (tableId: string, objectId?: string) => {
     const qs = objectId ? `?object_id=${objectId}` : ''
     return request<any[]>(`/ref-tables/${tableId}/records${qs}`)
+  },
+  getRefAggregations: (tableId: string, objectId?: string) => {
+    const qs = objectId ? `?object_id=${objectId}` : ''
+    return request<Record<string, any>>(`/ref-tables/${tableId}/aggregations${qs}`)
   },
   createRefRecord: (tableId: string, data: any) =>
     request<any>(`/ref-tables/${tableId}/records`, { method: 'POST', body: JSON.stringify(data) }),

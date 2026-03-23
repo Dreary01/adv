@@ -2,12 +2,13 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../lib/store'
 import {
   LayoutDashboard, Settings, FolderTree, SlidersHorizontal,
-  LogOut, Database, ChevronRight
+  LogOut, Database, ChevronRight, BarChart3
 } from 'lucide-react'
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Рабочий стол' },
   { to: '/projects', icon: FolderTree, label: 'Проекты' },
+  { to: '/analytics', icon: BarChart3, label: 'Аналитика' },
   { to: '/admin/object-types', icon: Settings, label: 'Типы объектов', section: 'admin' },
   { to: '/admin/requisites', icon: SlidersHorizontal, label: 'Реквизиты', section: 'admin' },
   { to: '/admin/ref-tables', icon: Database, label: 'Справочники', section: 'admin' },
