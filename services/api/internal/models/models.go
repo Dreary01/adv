@@ -6,15 +6,34 @@ import (
 )
 
 type User struct {
-	ID        string          `json:"id"`
-	Email     string          `json:"email"`
-	FirstName string          `json:"first_name"`
-	LastName  string          `json:"last_name"`
-	AvatarURL *string         `json:"avatar_url,omitempty"`
-	IsActive  bool            `json:"is_active"`
-	IsAdmin   bool            `json:"is_admin"`
-	Settings  json.RawMessage `json:"settings,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID           string          `json:"id"`
+	Email        string          `json:"email"`
+	FirstName    string          `json:"first_name"`
+	LastName     string          `json:"last_name"`
+	AvatarURL    *string         `json:"avatar_url,omitempty"`
+	IsActive     bool            `json:"is_active"`
+	IsAdmin      bool            `json:"is_admin"`
+	IsSuperAdmin bool            `json:"is_superadmin"`
+	Settings     json.RawMessage `json:"settings,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
+type Workspace struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	OwnerID   string    `json:"owner_id"`
+	IsSystem  bool      `json:"is_system"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WorkspaceMembership struct {
+	WorkspaceID string `json:"workspace_id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Role        string `json:"role"`
+	IsSystem    bool   `json:"is_system"`
 }
 
 type ObjectType struct {
@@ -107,11 +126,13 @@ type Object struct {
 	TypeKind     string    `json:"type_kind,omitempty"`
 	TypeColor    *string   `json:"type_color,omitempty"`
 	TypeIcon     *string   `json:"type_icon,omitempty"`
-	PlanStart    *string   `json:"plan_start_date,omitempty"`
-	PlanEnd      *string   `json:"plan_end_date,omitempty"`
-	PlanDuration *int      `json:"plan_duration_days,omitempty"`
-	Children     []*Object `json:"children,omitempty"`
-	Plans        []Plan    `json:"plans,omitempty"`
+	PlanStart      *string   `json:"plan_start_date,omitempty"`
+	PlanEnd        *string   `json:"plan_end_date,omitempty"`
+	PlanDuration   *int      `json:"plan_duration_days,omitempty"`
+	OwnerName      *string   `json:"owner_name,omitempty"`
+	AssigneeName   *string   `json:"assignee_name,omitempty"`
+	Children       []*Object `json:"children,omitempty"`
+	Plans          []Plan    `json:"plans,omitempty"`
 }
 
 type Plan struct {
@@ -214,8 +235,22 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Token      string                `json:"token"`
+	User       User                  `json:"user"`
+	Workspace  *WorkspaceMembership  `json:"workspace,omitempty"`
+	Workspaces []WorkspaceMembership `json:"workspaces,omitempty"`
+}
+
+type RegisterRequest struct {
+	Email         string `json:"email"`
+	Password      string `json:"password"`
+	FirstName     string `json:"first_name"`
+	LastName      string `json:"last_name"`
+	WorkspaceName string `json:"workspace_name"`
+}
+
+type SwitchWorkspaceRequest struct {
+	WorkspaceID string `json:"workspace_id"`
 }
 
 type CreateObjectTypeRequest struct {

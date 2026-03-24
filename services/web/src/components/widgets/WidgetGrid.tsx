@@ -237,7 +237,7 @@ export default function WidgetGrid({ pageType, objectId, typeId, obj, onDeleteNo
                     <span className="widget-size-label">
                       {placement.colSpan}/12{placement.height ? ` · ${placement.height}px` : ''}
                     </span>
-                    {(placement.config || def.id === 'configurable') && (
+                    {(placement.config || def.id === 'configurable' || placement.widgetId.startsWith('cfg-')) && (
                       <button
                         onClick={() => setConfigWidgetId(placement.widgetId)}
                         className="widget-hide-btn"

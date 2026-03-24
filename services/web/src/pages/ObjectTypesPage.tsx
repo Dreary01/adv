@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, useMemo } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import {
   Plus, Folder, Target, CheckSquare, Trash2, ChevronRight,
   Briefcase, Flag, Users, Layers, Settings
 } from 'lucide-react'
+import SvarGrid from '../components/ui/SvarGrid'
 
 const kindIcons: Record<string, any> = { directory: Folder, project: Target, task: CheckSquare }
 const kindLabels: Record<string, string> = { directory: 'Директория', project: 'Проект', task: 'Задача' }
@@ -147,55 +148,44 @@ export default function ObjectTypesPage() {
 
       {/* Table */}
       <div className="card overflow-hidden">
-        <table className="data-table w-full">
-          <thead>
-            <tr>
-              <th>Тип объекта</th>
-              <th className="w-36">Вид</th>
-              <th className="text-center w-28">Корневой</th>
-              <th className="w-16"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {types.map(t => {
-              const Icon = kindIcons[t.kind] || CheckSquare
-              return (
-                <tr key={t.id} className="group">
-                  <td>
-                    <Link to={`/admin/object-types/${t.id}`} className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: t.color || '#6366F1' }}>
-                        <Icon size={16} className="text-white" />
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-gray-900 group-hover:text-primary-600">{t.name}</span>
-                        {t.description && <p className="text-xs text-gray-400 truncate max-w-md">{t.description}</p>}
-                      </div>
-                    </Link>
-                  </td>
-                  <td>
-                    <span className={`badge ${t.kind === 'directory' ? 'badge-purple' : t.kind === 'project' ? 'badge-blue' : 'badge-green'}`}>
-                      {kindLabels[t.kind] || t.kind}
-                    </span>
-                  </td>
-                  <td className="text-center">
-                    {t.can_be_root && <span className="badge badge-green">Да</span>}
-                  </td>
-                  <td className="text-right">
-                    <button onClick={(e) => handleDelete(e, t.id)}
-                      className="icon-btn-danger reveal-on-hover">
-                      <Trash2 size={15} />
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-        {types.length === 0 && (
+        {types.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-text">Нет типов объектов. Создайте первый.</p>
           </div>
+        ) : (
+          <SvarGrid
+            data={types}
+            columns={[
+              { id: 'name', header: 'Тип объекта', flexgrow: 1, cell: ({ row }: any) => {
+                const Icon = kindIcons[row.kind] || CheckSquare
+                return (
+                  <Link to={`/admin/object-types/${row.id}`} className="flex items-center gap-3 py-1">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: row.color || '#6366F1' }}>
+                      <Icon size={14} className="text-white" />
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-gray-900 hover:text-primary-600">{row.name}</span>
+                      {row.description && <p className="text-xs text-gray-400 truncate max-w-md">{row.description}</p>}
+                    </div>
+                  </Link>
+                )
+              }},
+              { id: 'kind', header: 'Вид', width: 140, cell: ({ row }: any) => (
+                <span className={`badge ${row.kind === 'directory' ? 'badge-purple' : row.kind === 'project' ? 'badge-blue' : 'badge-green'}`}>
+                  {kindLabels[row.kind] || row.kind}
+                </span>
+              )},
+              { id: 'can_be_root', header: 'Корневой', width: 110, cell: ({ row }: any) => (
+                row.can_be_root ? <span className="badge badge-green">Да</span> : null
+              )},
+              { id: 'actions', header: '', width: 60, cell: ({ row }: any) => (
+                <button onClick={(e: any) => handleDelete(e, row.id)} className="icon-btn-danger">
+                  <Trash2 size={15} />
+                </button>
+              )},
+            ]}
+          />
         )}
       </div>
     </div>

@@ -11,6 +11,7 @@ import ConfirmDeleteDialog from '../components/ui/ConfirmDeleteDialog'
 import WidgetGrid from '../components/widgets/WidgetGrid'
 import PivotView from '../components/analytics/PivotView'
 import { formatDateRu, businessDaysBetween, calculateForecast } from '../lib/date-utils'
+import SvarGrid from '../components/ui/SvarGrid'
 
 const iconMap: Record<string, any> = {
   briefcase: Briefcase, folder: Folder, target: Target, layers: Layers,
@@ -44,6 +45,7 @@ const priorityConfig: Record<number, { label: string; color: string }> = {
 const tabs = [
   { id: 'main', label: 'Главная' },
   { id: 'gantt', label: 'Гант' },
+  { id: 'documents', label: 'Документы' },
   { id: 'ref-tables', label: 'Справочники' },
   { id: 'events', label: 'Лента событий' },
 ]
@@ -54,6 +56,8 @@ export default function ObjectCardPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [obj, setObj] = useState<any>(null)
   const [deleteTarget, setDeleteTarget] = useState<any>(null)
+  const [ancestors, setAncestors] = useState<{ id: string; name: string; accessible: boolean }[]>([])
+  const [participants, setParticipants] = useState<any[]>([])
 
   const activeTab = searchParams.get('tab') || 'main'
   const setActiveTab = (tab: string) => {
@@ -63,6 +67,14 @@ export default function ObjectCardPage() {
   useEffect(() => {
     if (!id) return
     api.getObject(id).then(setObj).catch(() => navigate('/projects'))
+    // Load ancestors for breadcrumbs — all ancestors are shown,
+    // but only those the user can access are clickable links.
+    // We mark all as accessible=true since the ancestors endpoint already
+    // requires auth. Access check for navigation happens on click.
+    api.getParticipants(id).then(p => setParticipants(p || [])).catch(() => {})
+    api.getAncestors(id).then(ancs => {
+      setAncestors((ancs || []).map(a => ({ ...a, accessible: true })))
+    }).catch(() => setAncestors([]))
   }, [id])
 
   if (!obj) return <div className="p-8 text-gray-400">Загрузка...</div>
@@ -78,9 +90,19 @@ export default function ObjectCardPage() {
       <div className="border-b border-gray-200 bg-white sticky top-0 z-10">
         <div className="px-6 pt-4 pb-0">
           {/* Breadcrumbs */}
-          <div className="text-xs text-gray-400 mb-2">
+          <div className="text-xs text-gray-400 mb-2 flex items-center flex-wrap gap-0.5">
             <Link to="/projects" className="text-link">Все проекты</Link>
-            <span className="mx-1">/</span>
+            {ancestors.map(a => (
+              <span key={a.id} className="flex items-center gap-0.5">
+                <span className="mx-0.5">/</span>
+                {a.accessible ? (
+                  <Link to={`/projects/${a.id}`} className="text-link">{a.name}</Link>
+                ) : (
+                  <span className="text-gray-400" title="Нет доступа">{a.name}</span>
+                )}
+              </span>
+            ))}
+            <span className="mx-0.5">/</span>
             <span className="text-gray-600">{obj.name}</span>
           </div>
 
@@ -108,31 +130,45 @@ export default function ObjectCardPage() {
 
           {/* Participants */}
           <div className="flex items-center gap-6 mb-3">
-            {obj.owner_id && (
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                  <User size={14} className="text-gray-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Руководитель</p>
-                  <p className="text-sm text-gray-700">—</p>
-                </div>
-              </div>
-            )}
-            {obj.assignee_id && (
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                  <User size={14} className="text-gray-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Исполнитель</p>
-                  <p className="text-sm text-gray-700">—</p>
-                </div>
-              </div>
-            )}
-            {!obj.owner_id && !obj.assignee_id && (
-              <p className="text-xs text-gray-400">Ответственные не назначены</p>
-            )}
+            {(() => {
+              const manager = participants.find(p => p.role === 'manager')
+              const executor = participants.find(p => p.role === 'executor')
+              const ownerName = obj.owner_name || manager?.user_name
+              const assigneeName = obj.assignee_name || executor?.user_name
+              if (!ownerName && !assigneeName && participants.length === 0) {
+                return <p className="text-xs text-gray-400">Ответственные не назначены</p>
+              }
+              return (
+                <>
+                  {(manager || ownerName) && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                        <span className="text-xs font-semibold text-amber-700">
+                          {(manager?.user_name || ownerName || '?')[0]}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Руководитель</p>
+                        <p className="text-sm text-gray-700">{manager?.user_name || ownerName}</p>
+                      </div>
+                    </div>
+                  )}
+                  {(executor || assigneeName) && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                        <span className="text-xs font-semibold text-blue-700">
+                          {(executor?.user_name || assigneeName || '?')[0]}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Исполнитель</p>
+                        <p className="text-sm text-gray-700">{executor?.user_name || assigneeName}</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
 
           {/* Horizontal tabs */}
@@ -161,6 +197,7 @@ export default function ObjectCardPage() {
       <div className="p-6">
         {activeTab === 'main' && <MainTab obj={obj} onDeleteNode={setDeleteTarget} />}
         {activeTab === 'gantt' && <GanttTabWidget obj={obj} />}
+        {activeTab === 'documents' && <DocumentsTab obj={obj} />}
         {activeTab === 'ref-tables' && <RefTablesTabWidget obj={obj} />}
         {activeTab === 'events' && <EventsTabWidget obj={obj} />}
       </div>
@@ -513,12 +550,14 @@ function HierarchyTab({ obj, onDeleteNode }: { obj: any; onDeleteNode: (node: an
 
                   {/* Assignee */}
                   <div className="flex items-center gap-1 flex-shrink-0 w-24">
-                    {node.assignee_id ? (
+                    {node.assignee_name || node.assignee_id ? (
                       <>
-                        <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                          <User size={9} className="text-gray-500" />
+                        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-[8px] font-semibold text-blue-700">
+                            {(node.assignee_name || '?')[0]}
+                          </span>
                         </div>
-                        <span className="text-[10px] text-gray-500 truncate">Исполнитель</span>
+                        <span className="text-[10px] text-gray-500 truncate">{node.assignee_name || '—'}</span>
                       </>
                     ) : (
                       <span className="text-[10px] text-gray-300">—</span>
@@ -868,6 +907,8 @@ function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: st
   const [editData, setEditData] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'table' | 'pivot'>('table')
+  // Pre-resolved classifier labels: { reqId: { valueId: "label" } }
+  const [classifierLabels, setClassifierLabels] = useState<Record<string, Record<string, string>>>({})
 
   const load = useCallback(() => {
     setLoading(true)
@@ -875,10 +916,34 @@ function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: st
       api.getRefTable(tableId),
       api.getRefRecords(tableId, objectId),
       api.getRefAggregations(tableId, objectId),
-    ]).then(([t, r, agg]) => {
+    ]).then(async ([t, r, agg]) => {
       setTable(t)
       setRecords(r || [])
       setAggregations(agg || {})
+
+      // Pre-load classifier labels for all classifier/process columns
+      const cols = (t?.columns || []).filter((c: any) => c.is_visible !== false)
+      const classifierCols = cols.filter((c: any) => {
+        const type = c.requisite?.type
+        return type === 'classifier' || type === 'process'
+      })
+      const labelMap: Record<string, Record<string, string>> = {}
+      await Promise.all(classifierCols.map(async (col: any) => {
+        const req = col.requisite
+        try {
+          const vals = await api.getClassifierValues(req.id)
+          const map: Record<string, string> = {}
+          const walk = (items: any[]) => {
+            for (const item of items) {
+              map[item.id] = item.name
+              if (item.children?.length) walk(item.children)
+            }
+          }
+          walk(vals || [])
+          labelMap[req.id] = map
+        } catch { labelMap[req.id] = {} }
+      }))
+      setClassifierLabels(labelMap)
     }).catch(() => {}).finally(() => setLoading(false))
   }, [tableId, objectId])
 
@@ -987,88 +1052,70 @@ function RefTableDataView({ tableId, objectId }: { tableId: string; objectId: st
           <p className="empty-state-hint">Добавьте реквизиты к справочнику в администрировании</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th className="w-16"></th>
-                {columns.map((col: any) => (
-                  <th key={col.id}>
-                    <Link to="/admin/requisites" className="hover:text-primary-600 transition-colors">
-                      {col.requisite?.name || '—'}
-                    </Link>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {records.length === 0 ? (
-                <tr><td colSpan={columns.length + 1} className="text-center text-gray-400 py-8">Нет записей</td></tr>
-              ) : records.map(rec => (
-                editingId === rec.id ? (
-                  <tr key={rec.id} className="bg-primary-50/20">
-                    <td>
-                      <div className="flex gap-1">
-                        <button onClick={handleUpdate} className="btn-success btn-xs p-1"><Check size={12} /></button>
-                        <button onClick={() => setEditingId(null)} className="btn-secondary btn-xs p-1"><X size={12} /></button>
-                      </div>
-                    </td>
-                    {columns.map((col: any) => {
-                      const req = col.requisite || {}
-                      return (
-                        <td key={col.id}>
-                          {renderFieldInput(req, editData[req.id] || '', v => setEditData({ ...editData, [req.id]: v }))}
-                        </td>
-                      )
-                    })}
-                  </tr>
+        <SvarGrid
+          data={records.map((rec: any) => {
+            const row: any = { id: rec.id, _rec: rec }
+            columns.forEach((col: any) => {
+              const req = col.requisite || {}
+              row[`col_${req.id}`] = rec.data?.[req.id] ?? ''
+            })
+            return row
+          })}
+          columns={[
+            { id: '_actions', header: '', width: 70, cell: ({ row }: any) => (
+              <div className="flex gap-1">
+                {editingId === row.id ? (
+                  <>
+                    <button onClick={handleUpdate} className="btn-success btn-xs p-1"><Check size={12} /></button>
+                    <button onClick={() => setEditingId(null)} className="btn-secondary btn-xs p-1"><X size={12} /></button>
+                  </>
                 ) : (
-                  <tr key={rec.id} className="group">
-                    <td>
-                      <div className="flex gap-1">
-                        <button onClick={() => startEdit(rec)} className="icon-btn reveal-on-hover p-1"><Pencil size={12} /></button>
-                        <button onClick={() => handleDelete(rec.id)} className="icon-btn-danger reveal-on-hover p-1"><Trash2 size={12} /></button>
-                      </div>
-                    </td>
-                    {columns.map((col: any) => {
-                      const req = col.requisite || {}
-                      const val = rec.data?.[req.id]
-                      return <td key={col.id}>{renderFieldValue(req, val)}</td>
-                    })}
-                  </tr>
-                )
-              ))}
-              {/* Aggregation footer row */}
-              {hasAggregations && (
-                <tr className="bg-gray-50 border-t-2 border-gray-200 font-medium">
-                  <td className="text-xs text-gray-500 px-3 py-2 whitespace-nowrap">Итого</td>
-                  {columns.map((col: any) => {
-                    const req = col.requisite || {}
-                    const aggValue = aggregations[req.id]
-                    const aggLabel = col.aggregation
-                      ? AGGREGATION_LABELS[col.aggregation] || col.aggregation
-                      : ''
-                    if (aggValue === undefined || aggValue === null) {
-                      return <td key={col.id} className="text-gray-300 text-xs">—</td>
-                    }
+                  <>
+                    <button onClick={() => startEdit(row._rec)} className="p-1 text-gray-400 hover:text-gray-700"><Pencil size={12} /></button>
+                    <button onClick={() => handleDelete(row.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={12} /></button>
+                  </>
+                )}
+              </div>
+            )},
+            ...columns.map((col: any) => {
+              const req = col.requisite || {}
+              const colId = `col_${req.id}`
+              const aggValue = aggregations[req.id]
+              const aggLabel = col.aggregation ? (AGGREGATION_LABELS[col.aggregation] || col.aggregation) : ''
+              return {
+                id: colId,
+                header: req.name || '—',
+                flexgrow: 1,
+                footer: aggValue != null ? (
+                  typeof aggValue === 'number'
+                    ? (col.aggregation?.startsWith('pct_') ? `${aggValue}%` : aggValue.toLocaleString('ru-RU'))
+                    : String(aggValue)
+                ) : '',
+                cell: ({ row }: any) => {
+                  if (editingId === row.id) {
+                    return renderFieldInput(req, editData[req.id] || '', (v: any) => setEditData(prev => ({ ...prev, [req.id]: v })))
+                  }
+                  const val = row[colId]
+                  // For classifiers, use pre-resolved labels instead of component with hooks
+                  if ((req.type === 'classifier' || req.type === 'process') && val) {
+                    const ids = String(val).split(',').filter(Boolean)
+                    const labels = classifierLabels[req.id] || {}
+                    if (ids.length === 0) return <span className="text-gray-300">—</span>
                     return (
-                      <td key={col.id} className="text-sm">
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-gray-900">
-                            {typeof aggValue === 'number'
-                              ? (col.aggregation?.startsWith('pct_') ? `${aggValue}%` : aggValue.toLocaleString('ru-RU'))
-                              : aggValue}
-                          </span>
-                          {aggLabel && <span className="text-[10px] text-gray-400">{aggLabel}</span>}
-                        </div>
-                      </td>
+                      <div className="flex flex-wrap gap-1">
+                        {ids.map((id: string) => (
+                          <span key={id} className="badge badge-blue text-xs">{labels[id] || id}</span>
+                        ))}
+                      </div>
                     )
-                  })}
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  }
+                  return renderFieldValue(req, val)
+                },
+              }
+            }),
+          ]}
+          footer={hasAggregations}
+        />
       ))}
     </div>
   )
@@ -1393,6 +1440,199 @@ function EventsTab() {
             <p className="empty-state-hint">Лента событий будет реализована позже</p>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Documents Tab (SVAR FileManager) ───────────────────
+interface UploadProgress {
+  name: string
+  loaded: number
+  total: number
+  done: boolean
+}
+
+function DocumentsTab({ obj }: { obj: any }) {
+  const [files, setFiles] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploads, setUploads] = useState<UploadProgress[]>([])
+
+  const reloadFiles = () => {
+    fetch(`/api/objects/${obj.id}/documents/files`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('adv_token')}` },
+    })
+      .then(r => r.json())
+      .then(d => setFiles(d.data || []))
+      .catch(() => setFiles([]))
+  }
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/objects/${obj.id}/documents/files`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('adv_token')}` },
+    })
+      .then(r => r.json())
+      .then(d => setFiles(d.data || []))
+      .catch(() => setFiles([]))
+      .finally(() => setLoading(false))
+  }, [obj.id])
+
+  const uploadFile = (file: File, idx: number) => {
+    return new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest()
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          setUploads(prev => prev.map((u, i) => i === idx ? { ...u, loaded: e.loaded, total: e.total } : u))
+        }
+      })
+      xhr.addEventListener('load', () => {
+        setUploads(prev => prev.map((u, i) => i === idx ? { ...u, done: true, loaded: u.total } : u))
+        resolve()
+      })
+      xhr.addEventListener('error', () => {
+        setUploads(prev => prev.map((u, i) => i === idx ? { ...u, done: true } : u))
+        resolve()
+      })
+      xhr.open('POST', `/api/objects/${obj.id}/documents/upload?id=/`)
+      xhr.setRequestHeader('Authorization', `Bearer ${localStorage.getItem('adv_token')}`)
+      const formData = new FormData()
+      formData.append('upload', file)
+      xhr.send(formData)
+    })
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files
+    if (!fileList?.length) return
+    const fileArray = Array.from(fileList)
+
+    // Init progress entries
+    const newUploads: UploadProgress[] = fileArray.map(f => ({
+      name: f.name, loaded: 0, total: f.size, done: false,
+    }))
+    setUploads(newUploads)
+
+    // Upload all files (parallel)
+    await Promise.all(fileArray.map((file, i) => uploadFile(file, i)))
+
+    // Clear progress after a short delay, reload files
+    reloadFiles()
+    setTimeout(() => setUploads([]), 1500)
+    e.target.value = ''
+  }
+
+  const handleDelete = async (docId: string) => {
+    await fetch(`/api/objects/${obj.id}/documents/files`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('adv_token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ids: [docId] }),
+    })
+    setFiles(prev => prev.filter(f => f.doc_id !== docId))
+  }
+
+  const handleDownload = async (docId: string, fileName: string) => {
+    const res = await fetch(`/api/documents/${docId}/download`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('adv_token')}` },
+    })
+    if (!res.ok) return
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '—'
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Upload area */}
+      <div className="card">
+        <label className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-colors">
+          <FileText size={28} className="text-gray-300 mb-2" />
+          <span className="text-sm text-gray-500">Перетащите файлы или нажмите для загрузки</span>
+          <input type="file" multiple className="hidden" onChange={handleUpload} />
+        </label>
+
+        {/* Upload progress */}
+        {uploads.length > 0 && (
+          <div className="px-4 pb-4 space-y-2 mt-3">
+            {uploads.map((u, i) => {
+              const pct = u.total > 0 ? Math.round((u.loaded / u.total) * 100) : 0
+              return (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-600 truncate w-40">{u.name}</span>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${u.done ? 'bg-green-500' : 'bg-primary-500'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className={`text-xs w-10 text-right ${u.done ? 'text-green-600' : 'text-gray-400'}`}>
+                    {u.done ? <Check size={14} className="inline" /> : `${pct}%`}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* File list */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-500 uppercase">
+            Документы ({files.filter(f => f.type === 'file').length})
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center text-gray-400 text-sm">Загрузка...</div>
+        ) : files.filter(f => f.type === 'file').length === 0 ? (
+          <div className="p-8 text-center text-gray-400 text-sm">Нет документов</div>
+        ) : (
+          <SvarGrid
+            data={files.filter(f => f.type === 'file').map(f => ({ ...f, _fileName: f.id.split('/').pop() || f.id }))}
+            columns={[
+              { id: 'name', header: 'Название', flexgrow: 1, cell: ({ row }: any) => (
+                <button onClick={() => handleDownload(row.doc_id, row._fileName)} className="text-primary-600 hover:underline font-medium text-sm">
+                  {row._fileName}
+                </button>
+              )},
+              { id: 'size', header: 'Размер', width: 80, cell: ({ row }: any) => (
+                <span className="text-gray-500 text-xs">{formatSize(row.size)}</span>
+              )},
+              { id: 'object_name', header: 'Объект', width: 150, cell: ({ row }: any) => (
+                <span className="text-gray-500 text-xs truncate">{row.object_name || '—'}</span>
+              )},
+              { id: 'author_name', header: 'Автор', width: 120, cell: ({ row }: any) => (
+                <span className="text-gray-500 text-xs">{row.author_name || '—'}</span>
+              )},
+              { id: 'date', header: 'Дата', width: 100, cell: ({ row }: any) => (
+                <span className="text-gray-500 text-xs">{row.date ? new Date(row.date).toLocaleDateString('ru-RU') : '—'}</span>
+              )},
+              { id: 'actions', header: '', width: 50, cell: ({ row }: any) => (
+                <button onClick={() => handleDelete(row.doc_id)}
+                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              )},
+            ]}
+          />
+        )}
       </div>
     </div>
   )

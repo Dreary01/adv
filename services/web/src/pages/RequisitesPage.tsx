@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { Plus, Trash2, Pencil, X, Check, ChevronDown, ChevronRight, Lock, Unlock, Folder, Target, CheckSquare } from 'lucide-react'
+import SvarGrid from '../components/ui/SvarGrid'
 
 const TYPES = ['string','number','date','boolean','classifier','html','file','formula','counter','process']
 
@@ -1064,59 +1065,57 @@ export default function RequisitesPage() {
       })()}
 
       {/* List */}
-      <div className="card">
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50/70 border-b border-gray-200 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-          <span className="w-24">Тип</span>
-          <span className="flex-1">Название</span>
-          <span className="w-32 hidden sm:block">Группа</span>
-          <span className="w-36 hidden md:block">Настройки</span>
-          <span className="w-20 text-center">Уникальный</span>
-          <span className="w-16" />
+      {reqs.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <p className="empty-state-text">Нет реквизитов</p>
+            <p className="empty-state-hint">Создайте первый реквизит</p>
+          </div>
         </div>
-
-        <div className="divide-y divide-gray-50">
-          {reqs.map(r => (
-            <div key={r.id}
-              className={`flex items-center gap-3 px-4 py-3 group transition-colors cursor-pointer ${
-                editingId === r.id ? 'bg-primary-50/30' : 'hover:bg-gray-50/70'
-              }`}
-              onClick={() => { setEditingId(r.id); setShowCreate(false) }}>
-              <span className={`${typeBadge[r.type] || 'badge badge-gray'} w-24 justify-center`}>
-                {typeLabels[r.type] || r.type}
-              </span>
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium text-gray-900">{r.name}</span>
-                {r.description && <p className="text-xs text-gray-400 truncate">{r.description}</p>}
-              </div>
-              <span className="w-32 text-xs text-gray-400 truncate hidden sm:block">
-                {r.group_name || '—'}
-              </span>
-              <span className="w-36 hidden md:block">
-                <ConfigSummary type={r.type} config={r.config} />
-              </span>
-              <span className="w-20 text-center">
-                {r.is_unique && <span className="badge badge-amber">Да</span>}
-              </span>
-              <div className="flex gap-1 w-16 justify-end">
-                <button onClick={(e) => { e.stopPropagation(); setEditingId(r.id); setShowCreate(false) }}
-                  className="icon-btn reveal-on-hover p-1" title="Редактировать">
-                  <Pencil size={13} />
+      ) : (
+        <div className="card overflow-hidden">
+          <SvarGrid
+            data={reqs}
+            columns={[
+              { id: 'type', header: 'Тип', width: 130, cell: ({ row }: any) => (
+                <span className={`${typeBadge[row.type] || 'badge badge-gray'} justify-center`}>
+                  {typeLabels[row.type] || row.type}
+                </span>
+              )},
+              { id: 'name', header: 'Название', flexgrow: 1, cell: ({ row }: any) => (
+                <button
+                  className="text-left w-full cursor-pointer"
+                  onClick={() => { setEditingId(row.id); setShowCreate(false) }}
+                >
+                  <span className="text-sm font-medium text-gray-900">{row.name}</span>
+                  {row.description && <p className="text-xs text-gray-400 truncate">{row.description}</p>}
                 </button>
-                <button onClick={(e) => handleDelete(e, r.id)}
-                  className="icon-btn-danger reveal-on-hover p-1" title="Удалить">
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </div>
-          ))}
-          {reqs.length === 0 && (
-            <div className="empty-state">
-              <p className="empty-state-text">Нет реквизитов</p>
-              <p className="empty-state-hint">Создайте первый реквизит</p>
-            </div>
-          )}
+              )},
+              { id: 'group_name', header: 'Группа', width: 160, cell: ({ row }: any) => (
+                <span className="text-xs text-gray-400 truncate">{row.group_name || '—'}</span>
+              )},
+              { id: 'config', header: 'Настройки', width: 170, cell: ({ row }: any) => (
+                <ConfigSummary type={row.type} config={row.config} />
+              )},
+              { id: 'is_unique', header: 'Уникальный', width: 110, cell: ({ row }: any) => (
+                row.is_unique ? <span className="badge badge-amber">Да</span> : null
+              )},
+              { id: 'actions', header: '', width: 80, cell: ({ row }: any) => (
+                <div className="flex gap-1 justify-end">
+                  <button onClick={() => { setEditingId(row.id); setShowCreate(false) }}
+                    className="icon-btn p-1" title="Редактировать">
+                    <Pencil size={13} />
+                  </button>
+                  <button onClick={(e: any) => handleDelete(e, row.id)}
+                    className="icon-btn-danger p-1" title="Удалить">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )},
+            ]}
+          />
         </div>
-      </div>
+      )}
     </div>
   )
 }

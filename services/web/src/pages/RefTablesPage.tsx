@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Plus, Trash2, Database } from 'lucide-react'
+import SvarGrid from '../components/ui/SvarGrid'
 
 const structureLabels: Record<string, string> = { flat: 'Плоский список', hierarchical: 'Иерархическая', vertical: 'Вертикальный список' }
 const inputModeLabels: Record<string, string> = { inline: 'Строка ввода', modal: 'Всплывающее окно' }
@@ -147,44 +148,38 @@ export default function RefTablesPage() {
 
       {/* Table list */}
       <div className="card">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Справочник</th>
-              <th className="w-40">Структура</th>
-              <th className="w-40">Форма ввода</th>
-              <th className="w-16"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {tables.map(t => (
-              <tr key={t.id}>
-                <td>
-                  <Link to={`/admin/ref-tables/${t.id}`} className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <Database size={16} className="text-amber-600" />
-                    </div>
-                    <div>
-                      <span className="text-sm font-medium text-gray-900 group-hover:text-primary-600">{t.name}</span>
-                      {t.description && <p className="text-xs text-gray-400 truncate max-w-md">{t.description}</p>}
-                    </div>
-                  </Link>
-                </td>
-                <td>{structureLabels[t.structure] || t.structure}</td>
-                <td>{inputModeLabels[t.input_mode] || t.input_mode}</td>
-                <td className="text-right">
-                  <button onClick={(e) => handleDelete(e, t.id)} className="icon-btn-danger reveal-on-hover">
-                    <Trash2 size={15} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {tables.length === 0 && (
+        {tables.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state-text">Нет справочников. Создайте первый.</p>
           </div>
+        ) : (
+          <SvarGrid
+            data={tables}
+            columns={[
+              { id: 'name', header: 'Справочник', flexgrow: 1, cell: ({ row }: any) => (
+                <Link to={`/admin/ref-tables/${row.id}`} className="flex items-center gap-3 py-1">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Database size={16} className="text-amber-600" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-900 hover:text-primary-600">{row.name}</span>
+                    {row.description && <p className="text-xs text-gray-400 truncate max-w-md">{row.description}</p>}
+                  </div>
+                </Link>
+              )},
+              { id: 'structure', header: 'Структура', width: 160, cell: ({ row }: any) => (
+                <span>{structureLabels[row.structure] || row.structure}</span>
+              )},
+              { id: 'input_mode', header: 'Форма ввода', width: 160, cell: ({ row }: any) => (
+                <span>{inputModeLabels[row.input_mode] || row.input_mode}</span>
+              )},
+              { id: 'actions', header: '', width: 60, cell: ({ row }: any) => (
+                <button onClick={(e: any) => handleDelete(e, row.id)} className="icon-btn-danger">
+                  <Trash2 size={15} />
+                </button>
+              )},
+            ]}
+          />
         )}
       </div>
     </div>

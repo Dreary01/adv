@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/adv/api/internal/middleware"
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/middleware"
+	"github.com/custle/api/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,6 +19,7 @@ func NewDashboardHandler(db *pgxpool.Pool) *DashboardHandler {
 
 func (h *DashboardHandler) Requests(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
 
 	rows, err := h.db.Query(context.Background(),
 		`SELECT o.id, o.type_id, o.parent_id, o.name, o.code, o.description,
@@ -28,9 +29,9 @@ func (h *DashboardHandler) Requests(w http.ResponseWriter, r *http.Request) {
 		        t.name, t.kind, t.color, t.icon
 		 FROM objects o
 		 JOIN object_types t ON t.id = o.type_id
-		 WHERE o.assignee_id = $1 AND o.status IN ('not_started', 'in_progress')
+		 WHERE o.assignee_id = $1 AND o.status IN ('not_started', 'in_progress') AND o.workspace_id = $2
 		 ORDER BY o.priority DESC, o.created_at DESC
-		 LIMIT 20`, userID)
+		 LIMIT 20`, userID, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -57,6 +58,7 @@ func (h *DashboardHandler) Requests(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) Directions(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	rows, err := h.db.Query(context.Background(),
 		`SELECT o.id, o.type_id, o.parent_id, o.name, o.code, o.description,
 		        o.status, o.priority, o.progress, o.field_values,
@@ -65,8 +67,8 @@ func (h *DashboardHandler) Directions(w http.ResponseWriter, r *http.Request) {
 		        t.name, t.kind, t.color, t.icon
 		 FROM objects o
 		 JOIN object_types t ON t.id = o.type_id
-		 WHERE o.depth <= 1
-		 ORDER BY o.sort_order, o.created_at`)
+		 WHERE o.depth <= 1 AND o.workspace_id = $1
+		 ORDER BY o.sort_order, o.created_at`, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -108,13 +110,14 @@ func (h *DashboardHandler) Directions(w http.ResponseWriter, r *http.Request) {
 
 func (h *DashboardHandler) Events(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
 
 	rows, err := h.db.Query(context.Background(),
 		`SELECT id, user_id, title, body, link, is_read, created_at
 		 FROM notifications
-		 WHERE user_id = $1
+		 WHERE user_id = $1 AND workspace_id = $2
 		 ORDER BY created_at DESC
-		 LIMIT 30`, userID)
+		 LIMIT 30`, userID, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -4,7 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/middleware"
+	"github.com/custle/api/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -18,10 +19,11 @@ func NewRefTableHandler(db *pgxpool.Pool) *RefTableHandler {
 }
 
 func (h *RefTableHandler) List(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	rows, err := h.db.Query(context.Background(),
 		`SELECT id, name, description, icon, structure, input_mode,
 		        show_on_main_page, use_date, date_auto_fill, has_approval, created_at
-		 FROM reference_tables ORDER BY name`)
+		 FROM reference_tables WHERE workspace_id = $1 ORDER BY name`, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -43,11 +45,12 @@ func (h *RefTableHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *RefTableHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var t models.ReferenceTable
 	err := h.db.QueryRow(context.Background(),
 		`SELECT id, name, description, icon, structure, input_mode,
 		        show_on_main_page, use_date, date_auto_fill, has_approval, created_at
-		 FROM reference_tables WHERE id = $1`, id,
+		 FROM reference_tables WHERE id = $1 AND workspace_id = $2`, id, wsID,
 	).Scan(&t.ID, &t.Name, &t.Description, &t.Icon, &t.Structure, &t.InputMode,
 		&t.ShowOnMainPage, &t.UseDate, &t.DateAutoFill, &t.HasApproval, &t.CreatedAt)
 	if err != nil {
@@ -60,7 +63,7 @@ func (h *RefTableHandler) Get(w http.ResponseWriter, r *http.Request) {
 		        r.id, r.name, r.description, r.type, r.config, r.is_unique
 		 FROM reference_table_columns c
 		 JOIN requisites r ON r.id = c.requisite_id
-		 WHERE c.table_id = $1 ORDER BY c.sort_order`, id)
+		 WHERE c.table_id = $1 AND c.workspace_id = $2 ORDER BY c.sort_order`, id, wsID)
 	if colRows != nil {
 		defer colRows.Close()
 		for colRows.Next() {
@@ -77,6 +80,7 @@ func (h *RefTableHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *RefTableHandler) Create(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input struct {
 		Name           string  `json:"name"`
 		Description    *string `json:"description"`
@@ -99,10 +103,10 @@ func (h *RefTableHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var t models.ReferenceTable
 	h.db.QueryRow(context.Background(),
-		`INSERT INTO reference_tables (name, description, structure, input_mode, show_on_main_page, use_date, has_approval)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO reference_tables (workspace_id, name, description, structure, input_mode, show_on_main_page, use_date, has_approval)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id, name, description, icon, structure, input_mode, show_on_main_page, use_date, date_auto_fill, has_approval, created_at`,
-		input.Name, input.Description, input.Structure, input.InputMode,
+		wsID, input.Name, input.Description, input.Structure, input.InputMode,
 		input.ShowOnMainPage, input.UseDate, input.HasApproval,
 	).Scan(&t.ID, &t.Name, &t.Description, &t.Icon, &t.Structure, &t.InputMode,
 		&t.ShowOnMainPage, &t.UseDate, &t.DateAutoFill, &t.HasApproval, &t.CreatedAt)
@@ -112,6 +116,7 @@ func (h *RefTableHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *RefTableHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input struct {
 		Name           string  `json:"name"`
 		Description    *string `json:"description"`
@@ -133,10 +138,10 @@ func (h *RefTableHandler) Update(w http.ResponseWriter, r *http.Request) {
 			description = $2, structure = COALESCE(NULLIF($3::text, '')::ref_table_structure, structure),
 			input_mode = COALESCE(NULLIF($4::text, '')::ref_table_input_mode, input_mode),
 			show_on_main_page = $5, use_date = $6, has_approval = $7
-		 WHERE id = $8
+		 WHERE id = $8 AND workspace_id = $9
 		 RETURNING id, name, description, icon, structure, input_mode, show_on_main_page, use_date, date_auto_fill, has_approval, created_at`,
 		input.Name, input.Description, input.Structure, input.InputMode,
-		input.ShowOnMainPage, input.UseDate, input.HasApproval, id,
+		input.ShowOnMainPage, input.UseDate, input.HasApproval, id, wsID,
 	).Scan(&t.ID, &t.Name, &t.Description, &t.Icon, &t.Structure, &t.InputMode,
 		&t.ShowOnMainPage, &t.UseDate, &t.DateAutoFill, &t.HasApproval, &t.CreatedAt)
 	if err != nil {
@@ -148,12 +153,14 @@ func (h *RefTableHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *RefTableHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	h.db.Exec(context.Background(), `DELETE FROM reference_tables WHERE id = $1`, id)
+	wsID := middleware.GetWorkspaceID(r.Context())
+	h.db.Exec(context.Background(), `DELETE FROM reference_tables WHERE id = $1 AND workspace_id = $2`, id, wsID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *RefTableHandler) AddColumn(w http.ResponseWriter, r *http.Request) {
 	tableID := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input struct {
 		RequisiteID string `json:"requisite_id"`
 		SortOrder   int    `json:"sort_order"`
@@ -165,17 +172,18 @@ func (h *RefTableHandler) AddColumn(w http.ResponseWriter, r *http.Request) {
 	}
 	var col models.RefTableColumn
 	h.db.QueryRow(context.Background(),
-		`INSERT INTO reference_table_columns (table_id, requisite_id, sort_order, aggregation)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO reference_table_columns (workspace_id, table_id, requisite_id, sort_order, aggregation)
+		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (table_id, requisite_id) DO UPDATE SET sort_order = EXCLUDED.sort_order, aggregation = EXCLUDED.aggregation
 		 RETURNING id, table_id, requisite_id, sort_order, is_visible, aggregation`,
-		tableID, input.RequisiteID, input.SortOrder, input.Aggregation,
+		wsID, tableID, input.RequisiteID, input.SortOrder, input.Aggregation,
 	).Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible, &col.Aggregation)
 	writeJSON(w, http.StatusCreated, col)
 }
 
 func (h *RefTableHandler) UpdateColumn(w http.ResponseWriter, r *http.Request) {
 	colID := chi.URLParam(r, "colId")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input struct {
 		Aggregation *string `json:"aggregation"`
 		IsVisible   *bool   `json:"is_visible"`
@@ -191,9 +199,9 @@ func (h *RefTableHandler) UpdateColumn(w http.ResponseWriter, r *http.Request) {
 			aggregation = COALESCE($1, aggregation),
 			is_visible = COALESCE($2, is_visible),
 			sort_order = COALESCE($3, sort_order)
-		 WHERE id = $4
+		 WHERE id = $4 AND workspace_id = $5
 		 RETURNING id, table_id, requisite_id, sort_order, is_visible, aggregation`,
-		input.Aggregation, input.IsVisible, input.SortOrder, colID,
+		input.Aggregation, input.IsVisible, input.SortOrder, colID, wsID,
 	).Scan(&col.ID, &col.TableID, &col.RequisiteID, &col.SortOrder, &col.IsVisible, &col.Aggregation)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "update column failed: "+err.Error())
@@ -204,6 +212,7 @@ func (h *RefTableHandler) UpdateColumn(w http.ResponseWriter, r *http.Request) {
 
 func (h *RefTableHandler) DeleteColumn(w http.ResponseWriter, r *http.Request) {
 	colID := chi.URLParam(r, "colId")
-	h.db.Exec(context.Background(), `DELETE FROM reference_table_columns WHERE id = $1`, colID)
+	wsID := middleware.GetWorkspaceID(r.Context())
+	h.db.Exec(context.Background(), `DELETE FROM reference_table_columns WHERE id = $1 AND workspace_id = $2`, colID, wsID)
 	w.WriteHeader(http.StatusNoContent)
 }

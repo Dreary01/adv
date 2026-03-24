@@ -9,17 +9,29 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/adv/api/internal/middleware"
+	"github.com/custle/api/internal/access"
+	"github.com/custle/api/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RefRecordHandler struct {
-	db *pgxpool.Pool
+	db        *pgxpool.Pool
+	accessSvc *access.Service
 }
 
-func NewRefRecordHandler(db *pgxpool.Pool) *RefRecordHandler {
-	return &RefRecordHandler{db: db}
+func NewRefRecordHandler(db *pgxpool.Pool, accessSvc *access.Service) *RefRecordHandler {
+	return &RefRecordHandler{db: db, accessSvc: accessSvc}
+}
+
+func (h *RefRecordHandler) checkRefTableAccess(r *http.Request, tableID string, action int) bool {
+	wsRole := middleware.GetWorkspaceRole(r.Context())
+	if wsRole == "admin" {
+		return true
+	}
+	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
+	return h.accessSvc.CheckAccess(r.Context(), userID, wsID, access.ResourceRefTable, tableID, action)
 }
 
 type RefRecord struct {
@@ -39,15 +51,20 @@ type RefRecord struct {
 // List returns records for a ref table, optionally filtered by object_id
 func (h *RefRecordHandler) List(w http.ResponseWriter, r *http.Request) {
 	tableID := chi.URLParam(r, "tableId")
+	if !h.checkRefTableAccess(r, tableID, access.ActionRead) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	wsID := middleware.GetWorkspaceID(r.Context())
 	objectID := r.URL.Query().Get("object_id")
 
 	query := `SELECT id, table_id, object_id, parent_record_id, data,
 	                  record_date, is_approved, sort_order, created_at, updated_at, created_by
-	           FROM reference_records WHERE table_id = $1`
-	args := []interface{}{tableID}
+	           FROM reference_records WHERE table_id = $1 AND workspace_id = $2`
+	args := []interface{}{tableID, wsID}
 
 	if objectID != "" {
-		query += ` AND object_id = $2`
+		query += ` AND object_id = $3`
 		args = append(args, objectID)
 	}
 	query += ` ORDER BY sort_order, created_at`
@@ -74,7 +91,7 @@ func (h *RefRecordHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load formula columns for this table and compute values
-	formulaCols := h.getFormulaColumns(tableID)
+	formulaCols := h.getFormulaColumns(tableID, wsID)
 	if len(formulaCols) > 0 {
 		for i := range records {
 			var data map[string]interface{}
@@ -107,12 +124,12 @@ type formulaElement struct {
 	Label string `json:"label"`
 }
 
-func (h *RefRecordHandler) getFormulaColumns(tableID string) []formulaColumn {
+func (h *RefRecordHandler) getFormulaColumns(tableID, wsID string) []formulaColumn {
 	rows, err := h.db.Query(context.Background(),
 		`SELECT r.id, r.config
 		 FROM reference_table_columns c
 		 JOIN requisites r ON r.id = c.requisite_id
-		 WHERE c.table_id = $1 AND r.type = 'formula'`, tableID)
+		 WHERE c.table_id = $1 AND c.workspace_id = $2 AND r.type = 'formula'`, tableID, wsID)
 	if err != nil {
 		return nil
 	}
@@ -282,6 +299,11 @@ func parseFactor(tokens []interface{}, pos *int) *float64 {
 // Aggregations computes aggregated values for each column with aggregation set
 func (h *RefRecordHandler) Aggregations(w http.ResponseWriter, r *http.Request) {
 	tableID := chi.URLParam(r, "tableId")
+	if !h.checkRefTableAccess(r, tableID, access.ActionRead) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	wsID := middleware.GetWorkspaceID(r.Context())
 	objectID := r.URL.Query().Get("object_id")
 
 	// Get columns with aggregation set
@@ -289,7 +311,7 @@ func (h *RefRecordHandler) Aggregations(w http.ResponseWriter, r *http.Request) 
 		`SELECT c.requisite_id, c.aggregation, r.type
 		 FROM reference_table_columns c
 		 JOIN requisites r ON r.id = c.requisite_id
-		 WHERE c.table_id = $1 AND c.aggregation != ''`, tableID)
+		 WHERE c.table_id = $1 AND c.workspace_id = $2 AND c.aggregation != ''`, tableID, wsID)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{})
 		return
@@ -315,10 +337,10 @@ func (h *RefRecordHandler) Aggregations(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Load records
-	query := `SELECT data FROM reference_records WHERE table_id = $1`
-	args := []interface{}{tableID}
+	query := `SELECT data FROM reference_records WHERE table_id = $1 AND workspace_id = $2`
+	args := []interface{}{tableID, wsID}
 	if objectID != "" {
-		query += ` AND object_id = $2`
+		query += ` AND object_id = $3`
 		args = append(args, objectID)
 	}
 	rows, err := h.db.Query(context.Background(), query, args...)
@@ -329,7 +351,7 @@ func (h *RefRecordHandler) Aggregations(w http.ResponseWriter, r *http.Request) 
 	defer rows.Close()
 
 	// Load formula columns to compute formula values before aggregation
-	formulaCols := h.getFormulaColumns(tableID)
+	formulaCols := h.getFormulaColumns(tableID, wsID)
 
 	// Collect all values per requisite
 	valuesMap := make(map[string][]interface{}) // requisiteID -> values
@@ -501,6 +523,11 @@ func sortFloats(a []float64) {
 // Create adds a new record
 func (h *RefRecordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	tableID := chi.URLParam(r, "tableId")
+	if !h.checkRefTableAccess(r, tableID, access.ActionCreate) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	wsID := middleware.GetWorkspaceID(r.Context())
 
 	var req struct {
 		ObjectID       *string         `json:"object_id"`
@@ -524,11 +551,11 @@ func (h *RefRecordHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var rec RefRecord
 	err := h.db.QueryRow(context.Background(),
-		`INSERT INTO reference_records (table_id, object_id, parent_record_id, data, record_date, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO reference_records (workspace_id, table_id, object_id, parent_record_id, data, record_date, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, table_id, object_id, parent_record_id, data,
 		           record_date, is_approved, sort_order, created_at, updated_at, created_by`,
-		tableID, req.ObjectID, req.ParentRecordID, req.Data, req.RecordDate, userIDPtr,
+		wsID, tableID, req.ObjectID, req.ParentRecordID, req.Data, req.RecordDate, userIDPtr,
 	).Scan(&rec.ID, &rec.TableID, &rec.ObjectID, &rec.ParentRecordID,
 		&rec.Data, &rec.RecordDate, &rec.IsApproved, &rec.SortOrder,
 		&rec.CreatedAt, &rec.UpdatedAt, &rec.CreatedBy)
@@ -542,6 +569,18 @@ func (h *RefRecordHandler) Create(w http.ResponseWriter, r *http.Request) {
 // Update modifies a record
 func (h *RefRecordHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "recordId")
+	wsID := middleware.GetWorkspaceID(r.Context())
+
+	// Look up table_id for access check
+	var tableID string
+	if err := h.db.QueryRow(context.Background(), `SELECT table_id FROM reference_records WHERE id = $1 AND workspace_id = $2`, id, wsID).Scan(&tableID); err != nil {
+		writeError(w, http.StatusNotFound, "record not found")
+		return
+	}
+	if !h.checkRefTableAccess(r, tableID, access.ActionUpdate) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
 
 	var req struct {
 		Data       json.RawMessage `json:"data"`
@@ -561,10 +600,10 @@ func (h *RefRecordHandler) Update(w http.ResponseWriter, r *http.Request) {
 		`UPDATE reference_records SET
 			data = $1, record_date = COALESCE($2, record_date),
 			is_approved = COALESCE($3, is_approved), updated_at = NOW()
-		 WHERE id = $4
+		 WHERE id = $4 AND workspace_id = $5
 		 RETURNING id, table_id, object_id, parent_record_id, data,
 		           record_date, is_approved, sort_order, created_at, updated_at, created_by`,
-		req.Data, req.RecordDate, req.IsApproved, id,
+		req.Data, req.RecordDate, req.IsApproved, id, wsID,
 	).Scan(&rec.ID, &rec.TableID, &rec.ObjectID, &rec.ParentRecordID,
 		&rec.Data, &rec.RecordDate, &rec.IsApproved, &rec.SortOrder,
 		&rec.CreatedAt, &rec.UpdatedAt, &rec.CreatedBy)
@@ -578,6 +617,16 @@ func (h *RefRecordHandler) Update(w http.ResponseWriter, r *http.Request) {
 // Delete removes a record
 func (h *RefRecordHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "recordId")
-	h.db.Exec(context.Background(), `DELETE FROM reference_records WHERE id = $1`, id)
+	wsID := middleware.GetWorkspaceID(r.Context())
+	var tableID string
+	if err := h.db.QueryRow(context.Background(), `SELECT table_id FROM reference_records WHERE id = $1 AND workspace_id = $2`, id, wsID).Scan(&tableID); err != nil {
+		writeError(w, http.StatusNotFound, "record not found")
+		return
+	}
+	if !h.checkRefTableAccess(r, tableID, access.ActionDelete) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	h.db.Exec(context.Background(), `DELETE FROM reference_records WHERE id = $1 AND workspace_id = $2`, id, wsID)
 	w.WriteHeader(http.StatusNoContent)
 }

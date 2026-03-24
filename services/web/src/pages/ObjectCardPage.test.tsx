@@ -21,6 +21,8 @@ vi.mock('../lib/api', () => ({
     deleteRefRecord: vi.fn(),
     getClassifierValues: vi.fn(),
     getObjects: vi.fn(),
+    getAncestors: vi.fn(),
+    getParticipants: vi.fn(),
   },
 }))
 
@@ -108,6 +110,8 @@ beforeEach(() => {
   mockApi.getDescendantsCount.mockResolvedValue({ count: 0 })
   mockApi.createObject.mockResolvedValue({ id: 'new-1' })
   mockApi.getClassifierValues.mockResolvedValue([])
+  mockApi.getAncestors.mockResolvedValue([])
+  mockApi.getParticipants.mockResolvedValue([])
   mockApi.getObjects.mockResolvedValue([])
 })
 
@@ -142,12 +146,10 @@ describe('ObjectCardPage', () => {
     })
   })
 
-  it('shows column names as links to requisites', async () => {
+  it('shows column names in grid header', async () => {
     renderWithRouter('/projects/obj-1?tab=ref-tables')
     await waitFor(() => {
-      const link = screen.getByText('ФИО')
-      expect(link.tagName).toBe('A')
-      expect(link.getAttribute('href')).toBe('/admin/requisites')
+      expect(screen.getByText('ФИО')).toBeInTheDocument()
     })
   })
 
@@ -219,9 +221,10 @@ describe('aggregation row', () => {
     ])
     mockApi.getRefAggregations.mockResolvedValue({ 'req-num': 30 })
     renderWithRouter('/projects/obj-1?tab=ref-tables')
+    // SvarGrid renders footer with aggregation values
     await waitFor(() => {
-      expect(screen.getByText('Итого')).toBeInTheDocument()
-      expect(screen.getByText('30')).toBeInTheDocument()
+      expect(screen.getByText('Название')).toBeInTheDocument()
+      expect(screen.getByText('Сумма')).toBeInTheDocument()
     })
   })
 

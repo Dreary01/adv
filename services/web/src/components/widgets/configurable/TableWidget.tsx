@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import type { WidgetProps } from '../../../lib/widget-types'
 import { api } from '../../../lib/api'
+import SvarGrid from '../../ui/SvarGrid'
 
 export default function TableWidget({ obj, config, customTitle }: WidgetProps) {
   if (!config) return null
@@ -61,28 +62,10 @@ export default function TableWidget({ obj, config, customTitle }: WidgetProps) {
         ) : rows.length === 0 ? (
           <div className="p-4 text-sm text-gray-400 text-center">Нет данных</div>
         ) : (
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  {columns.map(col => (
-                    <th key={col} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {rows.map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    {columns.map(col => (
-                      <td key={col} className="px-3 py-2 text-gray-700">{String(row[col] ?? '—')}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SvarGrid
+            data={rows.map((r, i) => ({ id: i, ...r }))}
+            columns={columns.map(col => ({ id: col, header: col, flexgrow: 1 }))}
+          />
         )}
       </div>
     </div>

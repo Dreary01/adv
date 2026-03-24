@@ -13,6 +13,7 @@
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/outfit": "^5.2.8",
+    "@svar-ui/react-filemanager": "^2.4.4",
     "@svar-ui/react-gantt": "^2.5.2",
     "gantt-schedule-timeline-calendar": "^3.41.7",
     "lucide-react": "^0.447.0",

@@ -30,12 +30,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = await api.me();
       set({ user, userLoaded: true });
     } catch (err: any) {
-      // Only logout on auth errors, not network errors
-      if (err?.message?.includes('401') || err?.message?.includes('unauthorized') || err?.message?.includes('invalid token')) {
-        localStorage.removeItem('adv_token');
+      // Only clear auth on actual auth errors (401 already redirects via api.ts)
+      // For network errors — keep the token, user just can't load yet
+      if (err?.message === 'Unauthorized') {
         set({ user: null, token: null, userLoaded: true });
       } else {
-        // Network error — keep token, mark loaded
+        // Network error or server down — keep token, mark loaded so UI doesn't hang
         set({ userLoaded: true });
       }
     }

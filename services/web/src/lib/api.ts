@@ -1,5 +1,8 @@
 const API_BASE = '/api';
 
+// Prevent multiple concurrent 401 redirects
+let isRedirectingToLogin = false;
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('adv_token');
   const headers: Record<string, string> = {
@@ -9,6 +12,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  if (res.status === 401 && !path.includes('/auth/')) {
+    // Only redirect once — prevent race condition with parallel requests
+    if (!isRedirectingToLogin) {
+      isRedirectingToLogin = true;
+      localStorage.removeItem('adv_token');
+      window.location.href = '/login';
+    }
+    throw new Error('Unauthorized');
+  }
+
   if (res.status === 204) return undefined as T;
 
   const json = await res.json();
@@ -72,6 +86,7 @@ export const api = {
   updateObject: (id: string, data: any) => request<any>(`/objects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteObject: (id: string) => request<void>(`/objects/${id}`, { method: 'DELETE' }),
   getDescendantsCount: (id: string) => request<{ count: number }>(`/objects/${id}/descendants-count`),
+  getAncestors: (id: string) => request<{ id: string; name: string }[]>(`/objects/${id}/ancestors`),
   moveObject: (id: string, data: { parent_id?: string | null; sort_order?: number }) =>
     request<any>(`/objects/${id}/move`, { method: 'PATCH', body: JSON.stringify(data) }),
   reorderObjects: (ids: string[]) =>
@@ -141,6 +156,44 @@ export const api = {
     request<any>(`/ref-records/${recordId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteRefRecord: (recordId: string) =>
     request<void>(`/ref-records/${recordId}`, { method: 'DELETE' }),
+
+  // Participants
+  getParticipants: (objectId: string) => request<any[]>(`/objects/${objectId}/participants`),
+  addParticipant: (objectId: string, data: { user_id: string; role: string }) =>
+    request<void>(`/objects/${objectId}/participants`, { method: 'POST', body: JSON.stringify(data) }),
+  updateParticipant: (objectId: string, userId: string, role: string) =>
+    request<void>(`/objects/${objectId}/participants/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) }),
+  removeParticipant: (objectId: string, userId: string) =>
+    request<void>(`/objects/${objectId}/participants/${userId}`, { method: 'DELETE' }),
+
+  // Users (admin)
+  getUsers: () => request<any[]>('/users'),
+  getUser: (id: string) => request<any>(`/users/${id}`),
+  createUser: (data: { email: string; password: string; first_name: string; last_name: string; is_admin: boolean }) =>
+    request<any>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id: string, data: any) =>
+    request<any>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteUser: (id: string) =>
+    request<void>(`/users/${id}`, { method: 'DELETE' }),
+  resetUserPassword: (id: string, password: string) =>
+    request<void>(`/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
+
+  // Permissions (admin)
+  getPermissions: (params: Record<string, string>) => {
+    const qs = new URLSearchParams(params).toString()
+    return request<any[]>(`/permissions?${qs}`)
+  },
+  grantPermission: (data: { user_id: string; resource_type: string; resource_id: string; actions: number; recursive: boolean }) =>
+    request<any>('/permissions', { method: 'POST', body: JSON.stringify(data) }),
+  updatePermission: (id: string, data: { actions?: number; recursive?: boolean }) =>
+    request<any>(`/permissions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  revokePermission: (id: string) =>
+    request<void>(`/permissions/${id}`, { method: 'DELETE' }),
+
+  // Settings (admin)
+  getSettings: () => request<Record<string, any>>('/admin/settings'),
+  updateSettings: (data: Record<string, any>) =>
+    request<Record<string, any>>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Widget Layouts
   getWidgetLayouts: (pageType: string, objectId?: string, typeId?: string) => {

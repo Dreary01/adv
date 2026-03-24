@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/models"
 )
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

@@ -3,17 +3,19 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../lib/store'
 import {
   LayoutDashboard, Settings, FolderTree, SlidersHorizontal,
-  LogOut, Database, ChevronRight, BarChart3, PanelLeftClose, PanelLeft, LayoutGrid
+  LogOut, Database, ChevronRight, BarChart3, PanelLeftClose, PanelLeft, LayoutGrid, Users, Cog
 } from 'lucide-react'
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Рабочий стол' },
   { to: '/projects', icon: FolderTree, label: 'Проекты' },
   { to: '/analytics', icon: BarChart3, label: 'Аналитика' },
+  { to: '/admin/users', icon: Users, label: 'Пользователи', section: 'admin' },
   { to: '/admin/object-types', icon: Settings, label: 'Типы объектов', section: 'admin' },
   { to: '/admin/requisites', icon: SlidersHorizontal, label: 'Реквизиты', section: 'admin' },
   { to: '/admin/ref-tables', icon: Database, label: 'Справочники', section: 'admin' },
   { to: '/admin/widgets', icon: LayoutGrid, label: 'Виджеты', section: 'admin' },
+  { to: '/admin/settings', icon: Cog, label: 'Настройки', section: 'admin' },
 ]
 
 const COLLAPSED_KEY = 'adv_sidebar_collapsed'
@@ -71,7 +73,7 @@ export default function Layout() {
           ))}
 
           {/* Admin section */}
-          <div className="pt-4 mt-4 border-t border-white/[0.06]">
+          {user?.is_admin && <div className="pt-4 mt-4 border-t border-white/[0.06]">
             {!collapsed && (
               <p className="px-3 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
                 Администрирование
@@ -90,7 +92,7 @@ export default function Layout() {
                 {!collapsed && <span className="flex-1">{n.label}</span>}
               </NavLink>
             ))}
-          </div>
+          </div>}
         </nav>
 
         {/* Collapse toggle */}

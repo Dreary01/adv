@@ -9,6 +9,7 @@ volumes:
   adv-postgres-data:
   adv-redis-data:
   adv-nats-data:
+  adv-uploads:
 
 services:
   # ── Database ──────────────────────────────────────────────
@@ -91,6 +92,9 @@ services:
       NATS_URL: nats://adv-nats:4222
       JWT_SECRET: adv_jwt_secret_change_in_production
       PORT: "8080"
+      UPLOAD_PATH: /uploads
+    volumes:
+      - adv-uploads:/uploads
     ports:
       - "8080:8080"
     networks:

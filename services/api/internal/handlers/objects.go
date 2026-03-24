@@ -5,18 +5,30 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/adv/api/internal/middleware"
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/access"
+	"github.com/custle/api/internal/middleware"
+	"github.com/custle/api/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ObjectHandler struct {
-	db *pgxpool.Pool
+	db        *pgxpool.Pool
+	accessSvc *access.Service
 }
 
-func NewObjectHandler(db *pgxpool.Pool) *ObjectHandler {
-	return &ObjectHandler{db: db}
+func NewObjectHandler(db *pgxpool.Pool, accessSvc *access.Service) *ObjectHandler {
+	return &ObjectHandler{db: db, accessSvc: accessSvc}
+}
+
+func (h *ObjectHandler) canAccess(r *http.Request, objectID string, action int) bool {
+	wsRole := middleware.GetWorkspaceRole(r.Context())
+	if wsRole == "admin" {
+		return true
+	}
+	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
+	return h.accessSvc.CheckAccess(r.Context(), userID, wsID, access.ResourceObject, objectID, action)
 }
 
 func (h *ObjectHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -24,19 +36,36 @@ func (h *ObjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	typeID := r.URL.Query().Get("type_id")
 	status := r.URL.Query().Get("status")
 
-	query := `SELECT o.id, o.type_id, o.parent_id, o.name, o.code, o.description,
-	                  o.status, o.priority, o.progress, o.field_values,
+	wsID := middleware.GetWorkspaceID(r.Context())
+	wsRole := middleware.GetWorkspaceRole(r.Context())
+	ctePrefix := ""
+	aclFrom := ""
+	aclWhere := ""
+	if wsRole != "admin" {
+		userID := middleware.GetUserID(r.Context())
+		ctePrefix, aclFrom, aclWhere = h.accessSvc.AccessFilterCTE(userID, wsID)
+	}
+
+	// Light mode: skip heavy fields (field_values, description) for list views
+	query := `SELECT o.id, o.type_id, o.parent_id, o.name, o.code,
+	                  o.status, o.priority, o.progress,
 	                  o.sort_order, o.depth, o.owner_id, o.assignee_id,
-	                  o.created_at, o.updated_at, o.created_by,
+	                  o.created_at, o.updated_at,
 	                  t.name, t.kind, t.color, t.icon,
 	                  o.actual_start_date::text, o.actual_end_date::text,
-	                  p.start_date::text, p.end_date::text, p.duration_days
+	                  p.start_date::text, p.end_date::text, p.duration_days,
+	                  ua.first_name || ' ' || ua.last_name
 	           FROM objects o
 	           JOIN object_types t ON t.id = o.type_id
 	           LEFT JOIN object_plans p ON p.object_id = o.id AND p.plan_type = 'operational'
-	           WHERE 1=1`
-	args := []interface{}{}
-	argN := 1
+	           LEFT JOIN users ua ON ua.id = o.assignee_id` + aclFrom + `
+	           WHERE o.workspace_id = $1`
+	args := []interface{}{wsID}
+	argN := 2
+
+	if aclWhere != "" {
+		query += ` AND ` + aclWhere
+	}
 
 	if parentID == "root" || parentID == "" {
 		query += ` AND o.parent_id IS NULL`
@@ -59,7 +88,7 @@ func (h *ObjectHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	query += ` ORDER BY o.sort_order, o.created_at`
 
-	rows, err := h.db.Query(context.Background(), query, args...)
+	rows, err := h.db.Query(context.Background(), ctePrefix+query, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -69,13 +98,14 @@ func (h *ObjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	var objects []models.Object
 	for rows.Next() {
 		var o models.Object
-		if err := rows.Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code, &o.Description,
-			&o.Status, &o.Priority, &o.Progress, &o.FieldValues,
+		if err := rows.Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code,
+			&o.Status, &o.Priority, &o.Progress,
 			&o.SortOrder, &o.Depth, &o.OwnerID, &o.AssigneeID,
-			&o.CreatedAt, &o.UpdatedAt, &o.CreatedBy,
+			&o.CreatedAt, &o.UpdatedAt,
 			&o.TypeName, &o.TypeKind, &o.TypeColor, &o.TypeIcon,
 			&o.ActualStart, &o.ActualEnd,
-			&o.PlanStart, &o.PlanEnd, &o.PlanDuration); err != nil {
+			&o.PlanStart, &o.PlanEnd, &o.PlanDuration,
+			&o.AssigneeName); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -88,18 +118,35 @@ func (h *ObjectHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ObjectHandler) GetTree(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.Query(context.Background(),
-		`SELECT o.id, o.type_id, o.parent_id, o.name, o.code, o.description,
-		        o.status, o.priority, o.progress, o.field_values,
+	wsID := middleware.GetWorkspaceID(r.Context())
+	wsRole := middleware.GetWorkspaceRole(r.Context())
+	ctePrefix := ""
+	aclFrom := ""
+	aclWhere := ""
+	if wsRole != "admin" {
+		userID := middleware.GetUserID(r.Context())
+		ctePrefix, aclFrom, aclWhere = h.accessSvc.AccessFilterCTE(userID, wsID)
+	}
+
+	// Light fields only — no field_values, description, created_by
+	query := `SELECT o.id, o.type_id, o.parent_id, o.name, o.code,
+		        o.status, o.priority, o.progress,
 		        o.sort_order, o.depth, o.owner_id, o.assignee_id,
-		        o.created_at, o.updated_at, o.created_by,
+		        o.created_at, o.updated_at,
 		        t.name, t.kind, t.color, t.icon,
 		        o.actual_start_date::text, o.actual_end_date::text,
-		        p.start_date::text, p.end_date::text, p.duration_days
+		        p.start_date::text, p.end_date::text, p.duration_days,
+		        ua.first_name || ' ' || ua.last_name
 		 FROM objects o
 		 JOIN object_types t ON t.id = o.type_id
 		 LEFT JOIN object_plans p ON p.object_id = o.id AND p.plan_type = 'operational'
-		 ORDER BY o.sort_order, o.created_at`)
+		 LEFT JOIN users ua ON ua.id = o.assignee_id` + aclFrom + `
+		 WHERE o.workspace_id = $1`
+	if aclWhere != "" {
+		query += ` AND ` + aclWhere
+	}
+	query += ` ORDER BY o.sort_order, o.created_at`
+	rows, err := h.db.Query(context.Background(), ctePrefix+query, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -112,13 +159,14 @@ func (h *ObjectHandler) GetTree(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var o models.Object
-		if err := rows.Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code, &o.Description,
-			&o.Status, &o.Priority, &o.Progress, &o.FieldValues,
+		if err := rows.Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code,
+			&o.Status, &o.Priority, &o.Progress,
 			&o.SortOrder, &o.Depth, &o.OwnerID, &o.AssigneeID,
-			&o.CreatedAt, &o.UpdatedAt, &o.CreatedBy,
+			&o.CreatedAt, &o.UpdatedAt,
 			&o.TypeName, &o.TypeKind, &o.TypeColor, &o.TypeIcon,
 			&o.ActualStart, &o.ActualEnd,
-			&o.PlanStart, &o.PlanEnd, &o.PlanDuration); err != nil {
+			&o.PlanStart, &o.PlanEnd, &o.PlanDuration,
+			&o.AssigneeName); err != nil {
 			continue
 		}
 		obj := o
@@ -143,6 +191,10 @@ func (h *ObjectHandler) GetTree(w http.ResponseWriter, r *http.Request) {
 
 func (h *ObjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if !h.canAccess(r, id, access.ActionRead) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
 
 	var o models.Object
 	err := h.db.QueryRow(context.Background(),
@@ -151,16 +203,21 @@ func (h *ObjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 		        o.sort_order, o.depth, o.owner_id, o.assignee_id,
 		        o.created_at, o.updated_at, o.created_by,
 		        t.name, t.kind, t.color, t.icon,
-		        o.actual_start_date::text, o.actual_end_date::text
+		        o.actual_start_date::text, o.actual_end_date::text,
+		        uo.first_name || ' ' || uo.last_name,
+		        ua.first_name || ' ' || ua.last_name
 		 FROM objects o
 		 JOIN object_types t ON t.id = o.type_id
+		 LEFT JOIN users uo ON uo.id = o.owner_id
+		 LEFT JOIN users ua ON ua.id = o.assignee_id
 		 WHERE o.id = $1`, id,
 	).Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code, &o.Description,
 		&o.Status, &o.Priority, &o.Progress, &o.FieldValues,
 		&o.SortOrder, &o.Depth, &o.OwnerID, &o.AssigneeID,
 		&o.CreatedAt, &o.UpdatedAt, &o.CreatedBy,
 		&o.TypeName, &o.TypeKind, &o.TypeColor, &o.TypeIcon,
-		&o.ActualStart, &o.ActualEnd)
+		&o.ActualStart, &o.ActualEnd,
+		&o.OwnerName, &o.AssigneeName)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "object not found")
 		return
@@ -212,6 +269,13 @@ func (h *ObjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// Check create permission on parent (if has parent)
+	if req.ParentID != nil && *req.ParentID != "" {
+		if !h.canAccess(r, *req.ParentID, access.ActionCreate) {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
+	}
 	if req.Name == "" || req.TypeID == "" {
 		writeError(w, http.StatusBadRequest, "name and type_id are required")
 		return
@@ -236,16 +300,17 @@ func (h *ObjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		depth++
 	}
 
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var o models.Object
 	err := h.db.QueryRow(context.Background(),
-		`INSERT INTO objects (type_id, parent_id, name, code, description, status, priority,
+		`INSERT INTO objects (workspace_id, type_id, parent_id, name, code, description, status, priority,
 		                      field_values, assignee_id, depth, created_by, owner_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
 		 RETURNING id, type_id, parent_id, name, code, description, status, priority,
 		           progress, field_values, sort_order, depth, owner_id, assignee_id,
 		           created_at, updated_at, created_by,
 		           actual_start_date::text, actual_end_date::text`,
-		req.TypeID, req.ParentID, req.Name, req.Code, req.Description, req.Status,
+		wsID, req.TypeID, req.ParentID, req.Name, req.Code, req.Description, req.Status,
 		req.Priority, req.FieldValues, req.AssigneeID, depth, userID,
 	).Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code, &o.Description,
 		&o.Status, &o.Priority, &o.Progress, &o.FieldValues,
@@ -263,6 +328,10 @@ func (h *ObjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *ObjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if !h.canAccess(r, id, access.ActionUpdate) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
 	var req models.CreateObjectRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -347,6 +416,10 @@ func (h *ObjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *ObjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if !h.canAccess(r, id, access.ActionDelete) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
 
 	// Get parent_id before deleting (for progress recalc)
 	var parentID *string
@@ -392,32 +465,35 @@ func (h *ObjectHandler) GetDescendantsCount(w http.ResponseWriter, r *http.Reque
 func (h *ObjectHandler) GetSubtree(w http.ResponseWriter, r *http.Request) {
 	parentID := chi.URLParam(r, "id")
 
+	// Light fields — no field_values, description, created_by
 	rows, err := h.db.Query(context.Background(),
 		`WITH RECURSIVE subtree AS (
-			SELECT o.id, o.type_id, o.parent_id, o.name, o.code, o.description,
-			       o.status, o.priority, o.progress, o.field_values,
+			SELECT o.id, o.type_id, o.parent_id, o.name, o.code,
+			       o.status, o.priority, o.progress,
 			       o.sort_order, o.depth, o.owner_id, o.assignee_id,
-			       o.created_at, o.updated_at, o.created_by,
+			       o.created_at, o.updated_at,
 			       o.actual_start_date, o.actual_end_date
 			FROM objects o WHERE o.parent_id = $1
 			UNION ALL
-			SELECT o.id, o.type_id, o.parent_id, o.name, o.code, o.description,
-			       o.status, o.priority, o.progress, o.field_values,
+			SELECT o.id, o.type_id, o.parent_id, o.name, o.code,
+			       o.status, o.priority, o.progress,
 			       o.sort_order, o.depth, o.owner_id, o.assignee_id,
-			       o.created_at, o.updated_at, o.created_by,
+			       o.created_at, o.updated_at,
 			       o.actual_start_date, o.actual_end_date
 			FROM objects o INNER JOIN subtree s ON o.parent_id = s.id
 		)
-		SELECT s.id, s.type_id, s.parent_id, s.name, s.code, s.description,
-		       s.status, s.priority, s.progress, s.field_values,
+		SELECT s.id, s.type_id, s.parent_id, s.name, s.code,
+		       s.status, s.priority, s.progress,
 		       s.sort_order, s.depth, s.owner_id, s.assignee_id,
-		       s.created_at, s.updated_at, s.created_by,
+		       s.created_at, s.updated_at,
 		       t.name, t.kind, t.color, t.icon,
 		       s.actual_start_date::text, s.actual_end_date::text,
-		       p.start_date::text, p.end_date::text, p.duration_days
+		       p.start_date::text, p.end_date::text, p.duration_days,
+		       ua.first_name || ' ' || ua.last_name
 		FROM subtree s
 		JOIN object_types t ON t.id = s.type_id
 		LEFT JOIN object_plans p ON p.object_id = s.id AND p.plan_type = 'operational'
+		LEFT JOIN users ua ON ua.id = s.assignee_id
 		ORDER BY s.sort_order, s.created_at`, parentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -431,13 +507,14 @@ func (h *ObjectHandler) GetSubtree(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var o models.Object
-		if err := rows.Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code, &o.Description,
-			&o.Status, &o.Priority, &o.Progress, &o.FieldValues,
+		if err := rows.Scan(&o.ID, &o.TypeID, &o.ParentID, &o.Name, &o.Code,
+			&o.Status, &o.Priority, &o.Progress,
 			&o.SortOrder, &o.Depth, &o.OwnerID, &o.AssigneeID,
-			&o.CreatedAt, &o.UpdatedAt, &o.CreatedBy,
+			&o.CreatedAt, &o.UpdatedAt,
 			&o.TypeName, &o.TypeKind, &o.TypeColor, &o.TypeIcon,
 			&o.ActualStart, &o.ActualEnd,
-			&o.PlanStart, &o.PlanEnd, &o.PlanDuration); err != nil {
+			&o.PlanStart, &o.PlanEnd, &o.PlanDuration,
+			&o.AssigneeName); err != nil {
 			continue
 		}
 		obj := o
@@ -460,6 +537,43 @@ func (h *ObjectHandler) GetSubtree(w http.ResponseWriter, r *http.Request) {
 		roots = []*models.Object{}
 	}
 	writeJSON(w, http.StatusOK, roots)
+}
+
+// GetAncestors returns the chain of parent objects from root to immediate parent.
+func (h *ObjectHandler) GetAncestors(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	rows, err := h.db.Query(context.Background(),
+		`WITH RECURSIVE ancestors AS (
+			SELECT id, parent_id, name, type_id FROM objects WHERE id = (SELECT parent_id FROM objects WHERE id = $1)
+			UNION ALL
+			SELECT o.id, o.parent_id, o.name, o.type_id
+			FROM objects o INNER JOIN ancestors a ON o.id = a.parent_id
+		)
+		SELECT a.id, a.name FROM ancestors a
+		ORDER BY (SELECT depth FROM objects WHERE id = a.id)`, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	type ancestor struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	var result []ancestor
+	for rows.Next() {
+		var a ancestor
+		if err := rows.Scan(&a.ID, &a.Name); err != nil {
+			continue
+		}
+		result = append(result, a)
+	}
+	if result == nil {
+		result = []ancestor{}
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *ObjectHandler) Move(w http.ResponseWriter, r *http.Request) {

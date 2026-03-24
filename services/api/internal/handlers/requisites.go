@@ -4,7 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/middleware"
+	"github.com/custle/api/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -18,11 +19,13 @@ func NewRequisiteHandler(db *pgxpool.Pool) *RequisiteHandler {
 }
 
 func (h *RequisiteHandler) List(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	rows, err := h.db.Query(context.Background(),
 		`SELECT r.id, r.name, r.description, r.type, r.group_id, g.name, r.config, r.is_unique, r.created_at
 		 FROM requisites r
 		 LEFT JOIN requisite_groups g ON g.id = r.group_id
-		 ORDER BY r.name`)
+		 WHERE r.workspace_id = $1
+		 ORDER BY r.name`, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -47,11 +50,12 @@ func (h *RequisiteHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *RequisiteHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var req models.Requisite
 	err := h.db.QueryRow(context.Background(),
 		`SELECT r.id, r.name, r.description, r.type, r.group_id, g.name, r.config, r.is_unique, r.created_at
 		 FROM requisites r LEFT JOIN requisite_groups g ON g.id = r.group_id
-		 WHERE r.id = $1`, id,
+		 WHERE r.id = $1 AND r.workspace_id = $2`, id, wsID,
 	).Scan(&req.ID, &req.Name, &req.Description, &req.Type,
 		&req.GroupID, &req.GroupName, &req.Config, &req.IsUnique, &req.CreatedAt)
 	if err != nil {
@@ -62,6 +66,7 @@ func (h *RequisiteHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *RequisiteHandler) Create(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input models.CreateRequisiteRequest
 	if err := decodeJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -77,10 +82,10 @@ func (h *RequisiteHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var req models.Requisite
 	err := h.db.QueryRow(context.Background(),
-		`INSERT INTO requisites (name, description, type, group_id, config, is_unique)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO requisites (workspace_id, name, description, type, group_id, config, is_unique)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, name, description, type, group_id, config, is_unique, created_at`,
-		input.Name, input.Description, input.Type, input.GroupID, input.Config, input.IsUnique,
+		wsID, input.Name, input.Description, input.Type, input.GroupID, input.Config, input.IsUnique,
 	).Scan(&req.ID, &req.Name, &req.Description, &req.Type, &req.GroupID, &req.Config, &req.IsUnique, &req.CreatedAt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -91,6 +96,7 @@ func (h *RequisiteHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *RequisiteHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input models.CreateRequisiteRequest
 	if err := decodeJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -106,9 +112,9 @@ func (h *RequisiteHandler) Update(w http.ResponseWriter, r *http.Request) {
 			name = COALESCE(NULLIF($1, ''), name),
 			description = $2, type = COALESCE(NULLIF($3::text, '')::requisite_type, type),
 			group_id = $4, config = $5, is_unique = $6, updated_at = NOW()
-		 WHERE id = $7
+		 WHERE id = $7 AND workspace_id = $8
 		 RETURNING id, name, description, type, group_id, config, is_unique, created_at`,
-		input.Name, input.Description, input.Type, input.GroupID, input.Config, input.IsUnique, id,
+		input.Name, input.Description, input.Type, input.GroupID, input.Config, input.IsUnique, id, wsID,
 	).Scan(&req.ID, &req.Name, &req.Description, &req.Type, &req.GroupID, &req.Config, &req.IsUnique, &req.CreatedAt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "update requisite failed: "+err.Error())
@@ -119,15 +125,17 @@ func (h *RequisiteHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *RequisiteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	h.db.Exec(context.Background(), `DELETE FROM requisites WHERE id = $1`, id)
+	wsID := middleware.GetWorkspaceID(r.Context())
+	h.db.Exec(context.Background(), `DELETE FROM requisites WHERE id = $1 AND workspace_id = $2`, id, wsID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // Groups
 
 func (h *RequisiteHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	rows, err := h.db.Query(context.Background(),
-		`SELECT id, name, sort_order FROM requisite_groups ORDER BY sort_order, name`)
+		`SELECT id, name, sort_order FROM requisite_groups WHERE workspace_id = $1 ORDER BY sort_order, name`, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -152,6 +160,7 @@ func (h *RequisiteHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *RequisiteHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	var input struct {
 		Name      string `json:"name"`
 		SortOrder int    `json:"sort_order"`
@@ -162,7 +171,7 @@ func (h *RequisiteHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	var id string
 	h.db.QueryRow(context.Background(),
-		`INSERT INTO requisite_groups (name, sort_order) VALUES ($1, $2) RETURNING id`,
-		input.Name, input.SortOrder).Scan(&id)
+		`INSERT INTO requisite_groups (workspace_id, name, sort_order) VALUES ($1, $2, $3) RETURNING id`,
+		wsID, input.Name, input.SortOrder).Scan(&id)
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "name": input.Name})
 }

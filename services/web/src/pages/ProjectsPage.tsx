@@ -226,12 +226,14 @@ function TreeRow({ node, level, isOpen, onToggle, onOpen, onDelete, viewMode, vi
 
           {/* Assignee */}
           <div className="flex items-center gap-1 flex-shrink-0 w-28">
-            {node.assignee_id ? (
+            {node.assignee_name || node.assignee_id ? (
               <>
-                <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                  <User size={10} className="text-gray-500" />
+                <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[8px] font-semibold text-blue-700">
+                    {(node.assignee_name || '?')[0]}
+                  </span>
                 </div>
-                <span className="text-[11px] text-gray-500 truncate">Исполнитель</span>
+                <span className="text-[11px] text-gray-500 truncate">{node.assignee_name || 'Исполнитель'}</span>
               </>
             ) : (
               <span className="text-[11px] text-gray-300">—</span>
@@ -255,12 +257,14 @@ function TreeRow({ node, level, isOpen, onToggle, onOpen, onDelete, viewMode, vi
 
           {visibleColumns.includes('assignee') && (
             <div className="flex items-center gap-1 flex-shrink-0 w-28">
-              {node.assignee_id ? (
+              {node.assignee_name || node.assignee_id ? (
                 <>
-                  <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                    <User size={10} className="text-gray-500" />
+                  <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[8px] font-semibold text-blue-700">
+                      {(node.assignee_name || '?')[0]}
+                    </span>
                   </div>
-                  <span className="text-[11px] text-gray-500 truncate">Исполнитель</span>
+                  <span className="text-[11px] text-gray-500 truncate">{node.assignee_name || 'Исполнитель'}</span>
                 </>
               ) : (
                 <span className="text-[11px] text-gray-300">—</span>

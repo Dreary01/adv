@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/adv/api/internal/middleware"
+	"github.com/custle/api/internal/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -30,6 +30,7 @@ type widgetLayoutRow struct {
 // GET /api/widget-layouts?page_type=...&object_id=...&type_id=...
 func (h *WidgetLayoutHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
 	pageType := r.URL.Query().Get("page_type")
 	objectID := r.URL.Query().Get("object_id")
 	typeID := r.URL.Query().Get("type_id")
@@ -42,14 +43,14 @@ func (h *WidgetLayoutHandler) Get(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(context.Background(),
 		`SELECT id, scope, page_type, user_id, object_id, type_id, layout
 		 FROM widget_layouts
-		 WHERE page_type = $1
+		 WHERE page_type = $1 AND workspace_id = $6
 		   AND (
 		     (scope = 'user' AND user_id = $2 AND (object_id = $3 OR object_id = ''))
 		     OR
 		     (scope = 'admin' AND (object_id = $4 OR object_id = '') AND (type_id = $5 OR type_id = ''))
 		   )
 		 ORDER BY scope, object_id DESC, type_id DESC`,
-		pageType, userID, objectID, objectID, typeID)
+		pageType, userID, objectID, objectID, typeID, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -74,6 +75,7 @@ func (h *WidgetLayoutHandler) Get(w http.ResponseWriter, r *http.Request) {
 // PUT /api/widget-layouts
 func (h *WidgetLayoutHandler) Save(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
 
 	var req struct {
 		Scope    string          `json:"scope"`
@@ -96,8 +98,8 @@ func (h *WidgetLayoutHandler) Save(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Scope == "admin" {
-		isAdmin, _ := r.Context().Value(middleware.UserAdminKey).(bool)
-		if !isAdmin {
+		wsRole := middleware.GetWorkspaceRole(r.Context())
+		if wsRole != "admin" {
 			writeError(w, http.StatusForbidden, "admin access required")
 			return
 		}
@@ -114,18 +116,18 @@ func (h *WidgetLayoutHandler) Save(w http.ResponseWriter, r *http.Request) {
 		`UPDATE widget_layouts SET layout = $1, updated_at = NOW()
 		 WHERE scope = $2 AND page_type = $3
 		   AND (($4::uuid IS NULL AND user_id IS NULL) OR user_id = $4)
-		   AND object_id = $5 AND type_id = $6
+		   AND object_id = $5 AND type_id = $6 AND workspace_id = $7
 		 RETURNING id, scope, page_type, user_id, object_id, type_id, layout`,
-		req.Layout, req.Scope, req.PageType, saveUserID, req.ObjectID, req.TypeID,
+		req.Layout, req.Scope, req.PageType, saveUserID, req.ObjectID, req.TypeID, wsID,
 	).Scan(&l.ID, &l.Scope, &l.PageType, &l.UserID, &l.ObjectID, &l.TypeID, &l.Layout)
 
 	if err != nil {
 		// Row doesn't exist — insert
 		err = h.db.QueryRow(context.Background(),
-			`INSERT INTO widget_layouts (scope, page_type, user_id, object_id, type_id, layout)
-			 VALUES ($1, $2, $3, $4, $5, $6)
+			`INSERT INTO widget_layouts (workspace_id, scope, page_type, user_id, object_id, type_id, layout)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
 			 RETURNING id, scope, page_type, user_id, object_id, type_id, layout`,
-			req.Scope, req.PageType, saveUserID, req.ObjectID, req.TypeID, req.Layout,
+			wsID, req.Scope, req.PageType, saveUserID, req.ObjectID, req.TypeID, req.Layout,
 		).Scan(&l.ID, &l.Scope, &l.PageType, &l.UserID, &l.ObjectID, &l.TypeID, &l.Layout)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -138,24 +140,25 @@ func (h *WidgetLayoutHandler) Save(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/widget-layouts?scope=...&page_type=...&object_id=...&type_id=...
 func (h *WidgetLayoutHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	wsID := middleware.GetWorkspaceID(r.Context())
 	scope := r.URL.Query().Get("scope")
 	pageType := r.URL.Query().Get("page_type")
 	objectID := r.URL.Query().Get("object_id")
 	typeID := r.URL.Query().Get("type_id")
 
 	if scope == "admin" {
-		isAdmin, _ := r.Context().Value(middleware.UserAdminKey).(bool)
-		if !isAdmin {
+		wsRole := middleware.GetWorkspaceRole(r.Context())
+		if wsRole != "admin" {
 			writeError(w, http.StatusForbidden, "admin access required")
 			return
 		}
 		h.db.Exec(context.Background(),
-			`DELETE FROM widget_layouts WHERE scope = 'admin' AND page_type = $1 AND object_id = $2 AND type_id = $3`,
-			pageType, objectID, typeID)
+			`DELETE FROM widget_layouts WHERE scope = 'admin' AND page_type = $1 AND object_id = $2 AND type_id = $3 AND workspace_id = $4`,
+			pageType, objectID, typeID, wsID)
 	} else {
 		h.db.Exec(context.Background(),
-			`DELETE FROM widget_layouts WHERE scope = 'user' AND user_id = $1 AND page_type = $2 AND object_id = $3`,
-			userID, pageType, objectID)
+			`DELETE FROM widget_layouts WHERE scope = 'user' AND user_id = $1 AND page_type = $2 AND object_id = $3 AND workspace_id = $4`,
+			userID, pageType, objectID, wsID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -11,3 +11,10 @@ const localStorageMock = {
   key: (i: number) => Object.keys(store)[i] ?? null,
 }
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock })
+
+// Mock ResizeObserver (required by SVAR Grid)
+globalThis.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as any

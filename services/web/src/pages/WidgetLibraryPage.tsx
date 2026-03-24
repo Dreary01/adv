@@ -1,9 +1,12 @@
-import { useState, useMemo } from 'react'
-import { Search, ChevronRight, ChevronDown, Hash, Gauge, Type, Table, List, BarChart3, Wand2, Plus, Cog, Trash2 } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { Search, ChevronRight, ChevronDown, Hash, Gauge, Type, Table, List, BarChart3, Wand2, Plus, Cog, Trash2, Save, Check, Link2, Loader2 } from 'lucide-react'
 import { getAllWidgets } from '../lib/widget-registry'
+import { getDefaultLayout } from '../lib/widget-registry'
 import { CONFIG_WIDGET_TYPES } from '../lib/widget-config-types'
 import type { WidgetConfig, ConfigWidgetType } from '../lib/widget-config-types'
-import type { WidgetDefinition } from '../lib/widget-types'
+import type { WidgetDefinition, PageType } from '../lib/widget-types'
+import { api } from '../lib/api'
+import { mergeWithDefaults } from '../lib/layout-store'
 import ConfigurableWidget from '../components/widgets/configurable/ConfigurableWidget'
 import WidgetConfigPanel from '../components/widgets/configurable/WidgetConfigPanel'
 
@@ -180,26 +183,64 @@ export default function WidgetLibraryPage() {
 
 const sandboxIconMap: Record<string, any> = { Hash, Gauge, Type, Table, List, BarChart3 }
 
+const SANDBOX_STORAGE_KEY = 'adv_sandbox_widgets'
+
+function loadSandboxWidgets(): { id: string; title: string; config: WidgetConfig; saved: boolean }[] {
+  try {
+    const raw = localStorage.getItem(SANDBOX_STORAGE_KEY)
+    if (raw) return JSON.parse(raw).map((w: any) => ({ ...w, saved: true }))
+  } catch {}
+  return []
+}
+
+function persistSandboxWidgets(widgets: { id: string; title: string; config: WidgetConfig }[]) {
+  localStorage.setItem(SANDBOX_STORAGE_KEY, JSON.stringify(widgets.map(({ id, title, config }) => ({ id, title, config }))))
+}
+
 function SandboxTab() {
-  const [widgets, setWidgets] = useState<{ id: string; config: WidgetConfig }[]>([])
+  const [widgets, setWidgets] = useState<{ id: string; title: string; config: WidgetConfig; saved: boolean }[]>(loadSandboxWidgets)
 
   const addWidget = (type: ConfigWidgetType) => {
-    setWidgets(prev => [...prev, { id: `w-${Date.now()}`, config: { type } }])
+    setWidgets(prev => [...prev, { id: `w-${Date.now()}`, title: '', config: { type }, saved: false }])
   }
 
   const updateWidget = (idx: number, patch: Partial<WidgetConfig>) => {
-    setWidgets(prev => prev.map((w, i) => i === idx ? { ...w, config: { ...w.config, ...patch } } : w))
+    setWidgets(prev => prev.map((w, i) => i === idx ? { ...w, config: { ...w.config, ...patch }, saved: false } : w))
+  }
+
+  const updateTitle = (idx: number, title: string) => {
+    setWidgets(prev => prev.map((w, i) => i === idx ? { ...w, title, saved: false } : w))
   }
 
   const updateDS = (idx: number, patch: Record<string, any>) => {
     setWidgets(prev => prev.map((w, i) => {
       if (i !== idx) return w
-      return { ...w, config: { ...w.config, dataSource: { ...w.config.dataSource, kind: w.config.dataSource?.kind || 'object-field', ...patch } } }
+      return { ...w, saved: false, config: { ...w.config, dataSource: { ...w.config.dataSource, kind: w.config.dataSource?.kind || 'object-field', ...patch } } }
     }))
   }
 
   const removeWidget = (idx: number) => {
-    setWidgets(prev => prev.filter((_, i) => i !== idx))
+    setWidgets(prev => {
+      const next = prev.filter((_, i) => i !== idx)
+      persistSandboxWidgets(next)
+      return next
+    })
+  }
+
+  const saveWidget = (idx: number) => {
+    setWidgets(prev => {
+      const next = prev.map((w, i) => i === idx ? { ...w, saved: true } : w)
+      persistSandboxWidgets(next)
+      return next
+    })
+  }
+
+  const saveAll = () => {
+    setWidgets(prev => {
+      const next = prev.map(w => ({ ...w, saved: true }))
+      persistSandboxWidgets(next)
+      return next
+    })
   }
 
   return (
@@ -228,9 +269,18 @@ function SandboxTab() {
         </div>
       ) : (
         <div className="space-y-5">
+          {widgets.some(w => !w.saved) && (
+            <div className="flex justify-end">
+              <button onClick={saveAll} className="btn-primary btn-sm flex items-center gap-1.5">
+                <Save size={14} />
+                Сохранить все
+              </button>
+            </div>
+          )}
           {widgets.map((w, idx) => (
-            <SandboxWidgetCard key={w.id} config={w.config} idx={idx}
-              onUpdate={updateWidget} onUpdateDS={updateDS} onRemove={removeWidget} />
+            <SandboxWidgetCard key={w.id} config={w.config} title={w.title} saved={w.saved} idx={idx}
+              onUpdate={updateWidget} onUpdateTitle={updateTitle} onUpdateDS={updateDS}
+              onRemove={removeWidget} onSave={saveWidget} />
           ))}
         </div>
       )}
@@ -238,11 +288,13 @@ function SandboxTab() {
   )
 }
 
-function SandboxWidgetCard({ config, idx, onUpdate, onUpdateDS, onRemove }: {
-  config: WidgetConfig; idx: number
+function SandboxWidgetCard({ config, title, saved, idx, onUpdate, onUpdateTitle, onUpdateDS, onRemove, onSave }: {
+  config: WidgetConfig; title: string; saved: boolean; idx: number
   onUpdate: (idx: number, patch: Partial<WidgetConfig>) => void
+  onUpdateTitle: (idx: number, title: string) => void
   onUpdateDS: (idx: number, patch: Record<string, any>) => void
   onRemove: (idx: number) => void
+  onSave: (idx: number) => void
 }) {
   const typeInfo = CONFIG_WIDGET_TYPES.find(t => t.type === config.type)
 
@@ -253,16 +305,35 @@ function SandboxWidgetCard({ config, idx, onUpdate, onUpdateDS, onRemove }: {
           {(() => { const Icon = sandboxIconMap[typeInfo?.icon || 'Hash'] || Hash; return <Icon size={15} className="text-amber-600" /> })()}
           <span className="text-sm font-semibold text-gray-800">{typeInfo?.label || config.type}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">{config.type}</span>
+          {saved && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 flex items-center gap-0.5"><Check size={10} /> сохранён</span>}
         </div>
-        <button onClick={() => onRemove(idx)} className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-          <Trash2 size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button onClick={() => onSave(idx)}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              saved
+                ? 'text-green-600 bg-green-50'
+                : 'text-white bg-primary-600 hover:bg-primary-700'
+            }`}>
+            {saved ? <Check size={13} /> : <Save size={13} />}
+            {saved ? 'Сохранён' : 'Сохранить'}
+          </button>
+          <button onClick={() => onRemove(idx)} className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
         {/* Settings */}
         <div className="p-5 space-y-4">
           <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Настройки</h4>
+
+          {/* Title */}
+          <div>
+            <label className="label">Название</label>
+            <input value={title} onChange={e => onUpdateTitle(idx, e.target.value)}
+              className="input input-sm" placeholder="Мой виджет" />
+          </div>
 
           {/* Type selector */}
           <div>
@@ -429,6 +500,133 @@ function SandboxWidgetCard({ config, idx, onUpdate, onUpdateDS, onRemove }: {
           <ConfigurableWidget config={config} />
         </div>
       </div>
+
+      {/* Bind to type */}
+      <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/30">
+        <BindToTypeButton widgetTitle={title} config={config} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Bind to Object Type ─────────────────────────────────
+
+function BindToTypeButton({ widgetTitle, config }: { widgetTitle: string; config: WidgetConfig }) {
+  const [open, setOpen] = useState(false)
+  const [types, setTypes] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [binding, setBinding] = useState<string | null>(null)
+  const [bound, setBound] = useState<Set<string>>(new Set())
+  const [pageType, setPageType] = useState<PageType>('object-main')
+
+  useEffect(() => {
+    if (open && types.length === 0) {
+      api.getObjectTypes().then(t => setTypes(t || [])).catch(() => {})
+    }
+  }, [open])
+
+  const bindToType = async (typeId: string) => {
+    setBinding(typeId)
+    try {
+      // Fetch existing admin-type layout for this page
+      const rows = await api.getWidgetLayouts(pageType, undefined, typeId)
+      const adminTypeRow = rows?.find((r: any) => r.scope === 'admin' && r.type_id === typeId && !r.object_id)
+
+      const defaults = getDefaultLayout(pageType)
+      const validIds = new Set(defaults.placements.map(p => p.widgetId))
+      const existing = adminTypeRow
+        ? mergeWithDefaults(adminTypeRow.layout, defaults, validIds)
+        : { placements: [...defaults.placements] }
+
+      // Generate unique widget ID
+      const cfgId = `cfg-${Date.now()}`
+      const maxOrder = existing.placements.reduce((max: number, p: any) => Math.max(max, p.order), 0)
+
+      existing.placements.push({
+        widgetId: cfgId,
+        colSpan: 4,
+        height: null,
+        title: widgetTitle || null,
+        order: maxOrder + 1,
+        visible: true,
+        config,
+      })
+
+      await api.saveWidgetLayout({
+        scope: 'admin',
+        page_type: pageType,
+        type_id: typeId,
+        layout: existing,
+      })
+
+      setBound(prev => new Set(prev).add(typeId))
+    } catch (err) {
+      console.error('Failed to bind widget to type', err)
+    } finally {
+      setBinding(null)
+    }
+  }
+
+  const pageTypeOptions: { value: PageType; label: string }[] = [
+    { value: 'object-main', label: 'Главная' },
+    { value: 'object-gantt', label: 'Гант' },
+    { value: 'object-ref-tables', label: 'Справочники' },
+    { value: 'object-events', label: 'События' },
+  ]
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-600 transition-colors">
+        <Link2 size={13} />
+        Привязать к типу объекта
+      </button>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Привязать к типу объекта</span>
+        <button onClick={() => setOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">Свернуть</button>
+      </div>
+
+      <div>
+        <label className="label">Страница</label>
+        <div className="flex gap-1">
+          {pageTypeOptions.map(opt => (
+            <button key={opt.value} onClick={() => setPageType(opt.value)}
+              className={`px-2 py-1 rounded text-xs transition-colors ${
+                pageType === opt.value ? 'bg-primary-100 text-primary-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {types.length === 0 ? (
+        <p className="text-xs text-gray-400">Типы объектов не найдены</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {types.map((t: any) => {
+            const isBound = bound.has(t.id)
+            const isBinding = binding === t.id
+            return (
+              <button key={t.id} onClick={() => !isBound && !isBinding && bindToType(t.id)}
+                disabled={isBinding}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                  isBound
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-gray-200 text-gray-600 hover:border-primary-400 hover:text-primary-600 hover:bg-primary-50/50'
+                }`}>
+                {isBinding ? <Loader2 size={12} className="animate-spin" /> : isBound ? <Check size={12} /> : <Link2 size={12} />}
+                {t.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

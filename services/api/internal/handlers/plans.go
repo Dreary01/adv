@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/middleware"
+	"github.com/custle/api/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,12 +22,13 @@ func NewPlanHandler(db *pgxpool.Pool) *PlanHandler {
 // GetPlans returns all plans for an object + computed forecast
 func (h *PlanHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 
 	// Load object status and actual dates
 	var status string
 	var actualStart, actualEnd *string
 	err := h.db.QueryRow(context.Background(),
-		`SELECT status, actual_start_date::text, actual_end_date::text FROM objects WHERE id = $1`, id,
+		`SELECT status, actual_start_date::text, actual_end_date::text FROM objects WHERE id = $1 AND workspace_id = $2`, id, wsID,
 	).Scan(&status, &actualStart, &actualEnd)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "object not found")
@@ -36,7 +38,7 @@ func (h *PlanHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 	// Load stored plans
 	rows, err := h.db.Query(context.Background(),
 		`SELECT id, object_id, plan_type, start_date::text, end_date::text, duration_days, effort_hours
-		 FROM object_plans WHERE object_id = $1`, id)
+		 FROM object_plans WHERE object_id = $1 AND workspace_id = $2`, id, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -58,21 +60,21 @@ func (h *PlanHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 	// Check if this is a summary object (has children) — aggregate from descendants
 	var childCount int
 	h.db.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM objects WHERE parent_id = $1`, id).Scan(&childCount)
+		`SELECT COUNT(*) FROM objects WHERE parent_id = $1 AND workspace_id = $2`, id, wsID).Scan(&childCount)
 
 	if childCount > 0 && operational == nil {
 		// Compute aggregated dates from all descendants
 		var aggStart, aggEnd *string
 		h.db.QueryRow(context.Background(),
 			`WITH RECURSIVE subtree AS (
-				SELECT id FROM objects WHERE parent_id = $1
+				SELECT id FROM objects WHERE parent_id = $1 AND workspace_id = $2
 				UNION ALL
-				SELECT o.id FROM objects o JOIN subtree s ON o.parent_id = s.id
+				SELECT o.id FROM objects o JOIN subtree s ON o.parent_id = s.id WHERE o.workspace_id = $2
 			)
 			SELECT MIN(p.start_date)::text, MAX(p.end_date)::text
 			FROM object_plans p
-			WHERE p.object_id IN (SELECT id FROM subtree) AND p.plan_type = 'operational'`,
-			id).Scan(&aggStart, &aggEnd)
+			WHERE p.object_id IN (SELECT id FROM subtree) AND p.plan_type = 'operational' AND p.workspace_id = $2`,
+			id, wsID).Scan(&aggStart, &aggEnd)
 
 		if aggStart != nil || aggEnd != nil {
 			var dur *int
@@ -107,6 +109,17 @@ func (h *PlanHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 // UpsertOperational creates or updates operational plan
 func (h *PlanHandler) UpsertOperational(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
+
+	// Only admin or manager can change dates
+	wsRole := middleware.GetWorkspaceRole(r.Context())
+	if wsRole != "admin" {
+		userID := middleware.GetUserID(r.Context())
+		if !IsManager(h.db, r.Context(), id, userID) {
+			writeError(w, http.StatusForbidden, "only managers can change dates")
+			return
+		}
+	}
 
 	var req models.UpdatePlanRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -130,14 +143,14 @@ func (h *PlanHandler) UpsertOperational(w http.ResponseWriter, r *http.Request) 
 
 	var p models.Plan
 	err := h.db.QueryRow(context.Background(),
-		`INSERT INTO object_plans (object_id, plan_type, start_date, end_date, duration_days, effort_hours)
-		 VALUES ($1, 'operational', $2, $3, $4, $5)
+		`INSERT INTO object_plans (workspace_id, object_id, plan_type, start_date, end_date, duration_days, effort_hours)
+		 VALUES ($1, $2, 'operational', $3, $4, $5, $6)
 		 ON CONFLICT (object_id, plan_type) DO UPDATE SET
 			start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,
 			duration_days = EXCLUDED.duration_days, effort_hours = EXCLUDED.effort_hours,
 			updated_at = NOW()
 		 RETURNING id, object_id, plan_type, start_date::text, end_date::text, duration_days, effort_hours`,
-		id, req.StartDate, req.EndDate, req.DurationDays, req.EffortHours,
+		wsID, id, req.StartDate, req.EndDate, req.DurationDays, req.EffortHours,
 	).Scan(&p.ID, &p.ObjectID, &p.PlanType, &p.StartDate, &p.EndDate, &p.DurationDays, &p.EffortHours)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "upsert plan failed: "+err.Error())
@@ -145,7 +158,7 @@ func (h *PlanHandler) UpsertOperational(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Cascade: shift dependent tasks based on dependency links
-	h.cascadeDependencies(id, p.StartDate, p.EndDate)
+	h.cascadeDependencies(wsID, id, p.StartDate, p.EndDate)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -153,18 +166,19 @@ func (h *PlanHandler) UpsertOperational(w http.ResponseWriter, r *http.Request) 
 // CreateBaseline snapshots operational → baseline
 func (h *PlanHandler) CreateBaseline(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 
 	var p models.Plan
 	err := h.db.QueryRow(context.Background(),
-		`INSERT INTO object_plans (object_id, plan_type, start_date, end_date, duration_days, effort_hours)
-		 SELECT object_id, 'baseline', start_date, end_date, duration_days, effort_hours
-		 FROM object_plans WHERE object_id = $1 AND plan_type = 'operational'
+		`INSERT INTO object_plans (workspace_id, object_id, plan_type, start_date, end_date, duration_days, effort_hours)
+		 SELECT workspace_id, object_id, 'baseline', start_date, end_date, duration_days, effort_hours
+		 FROM object_plans WHERE object_id = $1 AND plan_type = 'operational' AND workspace_id = $2
 		 ON CONFLICT (object_id, plan_type) DO UPDATE SET
 			start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,
 			duration_days = EXCLUDED.duration_days, effort_hours = EXCLUDED.effort_hours,
 			updated_at = NOW()
 		 RETURNING id, object_id, plan_type, start_date::text, end_date::text, duration_days, effort_hours`,
-		id,
+		id, wsID,
 	).Scan(&p.ID, &p.ObjectID, &p.PlanType, &p.StartDate, &p.EndDate, &p.DurationDays, &p.EffortHours)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "create baseline failed: "+err.Error())
@@ -176,8 +190,9 @@ func (h *PlanHandler) CreateBaseline(w http.ResponseWriter, r *http.Request) {
 // DeleteBaseline removes baseline plan
 func (h *PlanHandler) DeleteBaseline(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	wsID := middleware.GetWorkspaceID(r.Context())
 	h.db.Exec(context.Background(),
-		`DELETE FROM object_plans WHERE object_id = $1 AND plan_type = 'baseline'`, id)
+		`DELETE FROM object_plans WHERE object_id = $1 AND plan_type = 'baseline' AND workspace_id = $2`, id, wsID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -186,7 +201,7 @@ func (h *PlanHandler) DeleteBaseline(w http.ResponseWriter, r *http.Request) {
 // cascadeDependencies shifts successor tasks when a predecessor's dates change.
 // For each dependency from this task, ensures the successor doesn't start before
 // the predecessor ends (for FS) + lag days.
-func (h *PlanHandler) cascadeDependencies(predecessorID string, predStart, predEnd *string) {
+func (h *PlanHandler) cascadeDependencies(wsID, predecessorID string, predStart, predEnd *string) {
 	if predEnd == nil && predStart == nil {
 		return
 	}
@@ -194,7 +209,7 @@ func (h *PlanHandler) cascadeDependencies(predecessorID string, predStart, predE
 	// Find all dependencies where this task is the predecessor
 	rows, err := h.db.Query(context.Background(),
 		`SELECT d.successor_id, d.type, d.lag_days
-		 FROM dependencies d WHERE d.predecessor_id = $1`, predecessorID)
+		 FROM dependencies d WHERE d.predecessor_id = $1 AND d.workspace_id = $2`, predecessorID, wsID)
 	if err != nil {
 		return
 	}
@@ -212,8 +227,8 @@ func (h *PlanHandler) cascadeDependencies(predecessorID string, predStart, predE
 		var succDuration *int
 		h.db.QueryRow(context.Background(),
 			`SELECT start_date::text, end_date::text, duration_days
-			 FROM object_plans WHERE object_id = $1 AND plan_type = 'operational'`,
-			successorID).Scan(&succStart, &succEnd, &succDuration)
+			 FROM object_plans WHERE object_id = $1 AND plan_type = 'operational' AND workspace_id = $2`,
+			successorID, wsID).Scan(&succStart, &succEnd, &succDuration)
 
 		if succStart == nil {
 			continue
@@ -261,11 +276,11 @@ func (h *PlanHandler) cascadeDependencies(predecessorID string, predStart, predE
 
 			h.db.Exec(context.Background(),
 				`UPDATE object_plans SET start_date = $1, end_date = $2, updated_at = NOW()
-				 WHERE object_id = $3 AND plan_type = 'operational'`,
-				newStart, newEnd, successorID)
+				 WHERE object_id = $3 AND plan_type = 'operational' AND workspace_id = $4`,
+				newStart, newEnd, successorID, wsID)
 
 			// Recurse: this successor may have its own dependents
-			h.cascadeDependencies(successorID, &newStart, &newEnd)
+			h.cascadeDependencies(wsID, successorID, &newStart, &newEnd)
 		}
 	}
 }

@@ -1,5 +1,6 @@
+import { lazy, Suspense, createElement, ComponentType } from 'react'
 import { Inbox, ListTodo, Newspaper, FolderTree, Activity, BarChart3, Calendar, FileText, List, GanttChart, Database, Clock, Wrench } from 'lucide-react'
-import type { WidgetDefinition, PageType, LayoutConfig } from './widget-types'
+import type { WidgetDefinition, PageType, LayoutConfig, WidgetProps } from './widget-types'
 import { setRegistryAccessors } from './layout-store'
 
 // Dashboard widgets
@@ -19,8 +20,13 @@ import HierarchyWidget from '../components/widgets/object-main/HierarchyWidget'
 // Configurable widget
 import ConfigurableWidget from '../components/widgets/configurable/ConfigurableWidget'
 
-// Object tab widgets
-import GanttWidget from '../components/widgets/object-main/GanttWidget'
+// Lazy-loaded heavy widgets — only loaded when their tab is opened
+const LazyGanttWidget = lazy(() => import('../components/widgets/object-main/GanttWidget'))
+const GanttWidget: ComponentType<WidgetProps> = (props) =>
+  createElement(Suspense, { fallback: createElement('div', { className: 'flex items-center justify-center h-64 text-gray-400 text-sm' }, 'Загрузка диаграммы...') },
+    createElement(LazyGanttWidget, props))
+
+// Regular imports for lighter widgets
 import RefTablesWidget from '../components/widgets/object-main/RefTablesWidget'
 import EventsWidget from '../components/widgets/object-main/EventsWidget'
 
@@ -31,7 +37,11 @@ export function registerWidget(def: WidgetDefinition) {
 }
 
 export function getWidget(id: string): WidgetDefinition | undefined {
-  return registry.get(id)
+  const def = registry.get(id)
+  if (def) return def
+  // Dynamic configurable widgets: cfg-xxx → use 'configurable' definition
+  if (id.startsWith('cfg-')) return registry.get('configurable')
+  return undefined
 }
 
 export function getWidgetsForPage(pageType: PageType): WidgetDefinition[] {

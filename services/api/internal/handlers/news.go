@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/adv/api/internal/middleware"
-	"github.com/adv/api/internal/models"
+	"github.com/custle/api/internal/middleware"
+	"github.com/custle/api/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,14 +18,15 @@ func NewNewsHandler(db *pgxpool.Pool) *NewsHandler {
 }
 
 func (h *NewsHandler) List(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	rows, err := h.db.Query(context.Background(),
 		`SELECT n.id, n.title, n.body, n.is_published, n.created_at, n.created_by,
 		        u.first_name || ' ' || u.last_name
 		 FROM news n
 		 LEFT JOIN users u ON u.id = n.created_by
-		 WHERE n.is_published = true
+		 WHERE n.is_published = true AND n.workspace_id = $1
 		 ORDER BY n.created_at DESC
-		 LIMIT 20`)
+		 LIMIT 20`, wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -48,6 +49,7 @@ func (h *NewsHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NewsHandler) Create(w http.ResponseWriter, r *http.Request) {
+	wsID := middleware.GetWorkspaceID(r.Context())
 	userID := middleware.GetUserID(r.Context())
 
 	var req models.CreateNewsRequest
@@ -62,10 +64,10 @@ func (h *NewsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var n models.News
 	err := h.db.QueryRow(context.Background(),
-		`INSERT INTO news (title, body, created_by)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO news (workspace_id, title, body, created_by)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, title, body, is_published, created_at, created_by`,
-		req.Title, req.Body, userID,
+		wsID, req.Title, req.Body, userID,
 	).Scan(&n.ID, &n.Title, &n.Body, &n.IsPublished, &n.CreatedAt, &n.CreatedBy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
